@@ -166,81 +166,147 @@ class ImageViewer(QGraphicsView):
         super().drawForeground(painter, rect)
         if not self.turret_mode: return
 
-        # --- TURRET DRAWING (Overlay in Viewport Coords) ---
-        # "zrób go tak by jego rozmiar nie był zależny od zdjęcia..."
-        # We need to map viewport coordinates to the scene rect passed to drawForeground
-        # But wait, drawForeground passes 'rect' which is the exposed scene rect.
-        # Painter is set up for scene coordinates!
-        # To draw "HUD" style fixed elements, we must reset the transform.
-
+        # Reset transform to draw in viewport coordinates (HUD style)
         painter.save()
-        painter.resetTransform() # Now 0,0 is top-left of viewport (widget)
+        painter.resetTransform()
 
-        vp_width = self.viewport().width()
-        vp_height = self.viewport().height()
+        vp_w = self.viewport().width()
+        vp_h = self.viewport().height()
 
-        # Turret Geometry (Larger as requested)
-        radius = 32 # Increased from 18
-        margin = 48 # Distance from corner
-        tx = vp_width - margin
-        ty = vp_height - margin
+        # Config
+        scale = 0.9 # Slightly smaller
+        # Turret dimensions based on reference proportions
+        # Oval body: Width ~ 60, Height ~ 100
+        body_w = 60 * scale
+        body_h = 100 * scale
 
-        # Mouse Aim
-        mx = self.last_mouse_pos.x()
-        my = self.last_mouse_pos.y()
-        dx = mx - tx
-        dy = my - ty
-        angle = math.atan2(dy, dx)
-        dist = math.hypot(dx, dy)
+        # Position: Bottom Right
+        margin_right = 70
+        margin_bottom = 80
+        cx = vp_w - margin_right
+        cy = vp_h - margin_bottom
 
-        # Theme colors
-        t = self.current_theme
+        # ---------------------------------------------------------
+        # Drawing: Vector Icon Style (Portal 2 Turret)
+        # ---------------------------------------------------------
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1. Pedestal
-        ped_w = radius * 1.4
+        # 1. Legs (Black, Sharp, Tapered)
+        painter.setBrush(QColor("#000000"))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(t["pedestal"]))
-        # rect(x, y, w, h)
-        painter.drawRect(int(tx - ped_w), int(ty + radius + 2), int(ped_w*2), 12)
 
-        # 2. Base
-        painter.setPen(QPen(QColor(t["turret_base_outline"]), 3))
-        painter.setBrush(QColor(t["turret_base_fill"]))
-        painter.drawEllipse(QPointF(tx, ty), radius, radius)
+        # Center Leg (Back)
+        leg_c_path = QPainterPath()
+        leg_c_path.moveTo(cx - 5, cy + body_h * 0.3)
+        leg_c_path.lineTo(cx + 5, cy + body_h * 0.3)
+        leg_c_path.lineTo(cx, cy + body_h * 0.8) # Tip
+        leg_c_path.closeSubpath()
+        painter.drawPath(leg_c_path)
 
-        # 3. Barrel (Rotated)
-        painter.save()
-        painter.translate(tx, ty)
-        painter.rotate(math.degrees(angle))
-        painter.setPen(QPen(QColor("#ff2b2b"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        barrel_len = int(radius * 1.8)
-        painter.drawLine(0, 0, barrel_len, 0)
-        painter.restore()
+        # Left Leg (Curved outwards)
+        leg_l_path = QPainterPath()
+        leg_l_path.moveTo(cx - body_w * 0.2, cy + body_h * 0.2)
+        leg_l_path.cubicTo(cx - body_w * 0.8, cy + body_h * 0.4,
+                           cx - body_w * 0.9, cy + body_h * 0.8,
+                           cx - body_w * 1.0, cy + body_h * 0.85) # Tip
+        leg_l_path.lineTo(cx - body_w * 0.85, cy + body_h * 0.85)
+        leg_l_path.cubicTo(cx - body_w * 0.7, cy + body_h * 0.7,
+                           cx - body_w * 0.4, cy + body_h * 0.4,
+                           cx - body_w * 0.1, cy + body_h * 0.3)
+        leg_l_path.closeSubpath()
+        painter.drawPath(leg_l_path)
 
-        # 4. Bubble (if close)
-        if dist <= 120: # Slightly larger range for larger turret
+        # Right Leg (Mirror Left)
+        leg_r_path = QPainterPath()
+        leg_r_path.moveTo(cx + body_w * 0.2, cy + body_h * 0.2)
+        leg_r_path.cubicTo(cx + body_w * 0.8, cy + body_h * 0.4,
+                           cx + body_w * 0.9, cy + body_h * 0.8,
+                           cx + body_w * 1.0, cy + body_h * 0.85)
+        leg_r_path.lineTo(cx + body_w * 0.85, cy + body_h * 0.85)
+        leg_r_path.cubicTo(cx + body_w * 0.7, cy + body_h * 0.7,
+                           cx + body_w * 0.4, cy + body_h * 0.4,
+                           cx + body_w * 0.1, cy + body_h * 0.3)
+        leg_r_path.closeSubpath()
+        painter.drawPath(leg_r_path)
+
+        # 2. Body (Oval, Split Tones)
+        body_rect = QRectF(cx - body_w/2, cy - body_h/2, body_w, body_h)
+
+        # Left Half (Lighter)
+        painter.setBrush(QColor("#e8e8e8"))
+        painter.drawPie(body_rect, 90 * 16, 180 * 16)
+
+        # Right Half (Darker/Shaded)
+        painter.setBrush(QColor("#bfbfbf"))
+        painter.drawPie(body_rect, 270 * 16, 180 * 16)
+
+        # 3. Center Line
+        painter.setPen(QPen(QColor("#222222"), 2))
+        painter.drawLine(QPointF(cx, cy - body_h/2), QPointF(cx, cy + body_h/2))
+
+        # 4. Side Panel Lines (Wings)
+        painter.setPen(QPen(QColor("#222222"), 2))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Left Wing Curve
+        path_wing_l = QPainterPath()
+        path_wing_l.moveTo(cx, cy - body_h * 0.4)
+        path_wing_l.cubicTo(cx - body_w * 0.4, cy - body_h * 0.3,
+                            cx - body_w * 0.45, cy + body_h * 0.1,
+                            cx, cy + body_h * 0.4)
+        painter.drawPath(path_wing_l)
+
+        # Right Wing Curve
+        path_wing_r = QPainterPath()
+        path_wing_r.moveTo(cx, cy - body_h * 0.4)
+        path_wing_r.cubicTo(cx + body_w * 0.4, cy - body_h * 0.3,
+                            cx + body_w * 0.45, cy + body_h * 0.1,
+                            cx, cy + body_h * 0.4)
+        painter.drawPath(path_wing_r)
+
+        # 5. Eye
+        eye_y = cy - body_h * 0.05
+        eye_radius = body_w * 0.25
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#111111"))
+        painter.drawEllipse(QPointF(cx, eye_y), eye_radius, eye_radius)
+
+        # Red inner circle
+        pupil_radius = eye_radius * 0.4
+        painter.setBrush(QColor("#ff0000"))
+        painter.drawEllipse(QPointF(cx, eye_y), pupil_radius, pupil_radius)
+
+        # Shine
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(QPointF(cx + eye_radius*0.3, eye_y - eye_radius*0.3), pupil_radius*0.3, pupil_radius*0.3)
+
+        # 6. Bubble Logic
+        mx = self.last_mouse_pos.x()
+        my = self.last_mouse_pos.y()
+        dx = mx - cx
+        dy = my - cy
+        dist = math.hypot(dx, dy)
+
+        if dist <= 150:
             bw, bh = 190, 40
-            bx = int(tx - bw - 20)
-            by = int(ty - radius - 20 - bh)
+            bx = int(cx - bw - 40)
+            by = int(cy - body_h/2 - bh)
 
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(t["turret_bubble_fill"]))
-
-            # Bubble Body
+            painter.setBrush(QColor(self.current_theme["turret_bubble_fill"]))
             painter.drawRoundedRect(bx, by, bw, bh, 12, 12)
 
             # Tail
             tail = QPolygonF([
                 QPointF(bx + bw - 20, by + bh),
-                QPointF(tx - radius - 4, ty - radius - 4), # Tip towards turret
+                QPointF(cx - 20, cy - body_h/2 + 20),
                 QPointF(bx + bw - 10, by + bh - 10)
             ])
             painter.drawPolygon(tail)
 
-            # Text
-            painter.setPen(QColor(t["turret_bubble_text"]))
+            painter.setPen(QColor(self.current_theme["turret_bubble_text"]))
             painter.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
             painter.drawText(QRectF(bx, by, bw, bh), Qt.AlignmentFlag.AlignCenter, "Are you still there?")
 
@@ -458,6 +524,11 @@ class TurretEyeApp(QMainWindow):
             }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: {t['scroll_bg']};
             }}
             QScrollBar:horizontal {{
                 border: none;
@@ -473,6 +544,11 @@ class TurretEyeApp(QMainWindow):
             }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: {t['scroll_bg']};
             }}
         """
 
