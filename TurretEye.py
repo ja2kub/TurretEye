@@ -175,7 +175,7 @@ class ImageViewer(QGraphicsView):
         vp_h = self.viewport().height()
 
         # Config
-        scale = 0.9 # Slightly smaller
+        scale = 0.75 # Slightly smaller as requested
         # Turret dimensions based on reference proportions
         # Oval body: Width ~ 60, Height ~ 100
         body_w = 60 * scale
@@ -278,16 +278,29 @@ class ImageViewer(QGraphicsView):
         # painter.drawArc(body_rect, 0, 180 * 16) # Optional
 
         # Side Wings (Panels) - Separate shapes for depth
+        # Animation: Open wings if close
+        is_active = dist <= 150
+        wing_offset = 20 * scale if is_active else 0
+
         wing_w = body_w * 0.35
         wing_h = body_h * 0.6
+
+        # Guns (visible if open)
+        if is_active:
+            painter.setBrush(QColor("#111111"))
+            painter.setPen(Qt.PenStyle.NoPen)
+            # Left Gun
+            painter.drawRect(QRectF(cx - body_w/2 - 10 * scale, cy - wing_h * 0.2, 8 * scale, wing_h * 0.4))
+            # Right Gun
+            painter.drawRect(QRectF(cx + body_w/2 + 2 * scale, cy - wing_h * 0.2, 8 * scale, wing_h * 0.4))
 
         painter.setBrush(QColor("#e0e0e0"))
         painter.setPen(QPen(QColor("#666666"), 1))
 
         # Left Wing
-        painter.drawChord(QRectF(cx - body_w/2 - 5, cy - wing_h/2, wing_w, wing_h), 90*16, 180*16)
+        painter.drawChord(QRectF(cx - body_w/2 - 5 - wing_offset, cy - wing_h/2, wing_w, wing_h), 90*16, 180*16)
         # Right Wing
-        painter.drawChord(QRectF(cx + body_w/2 + 5 - wing_w, cy - wing_h/2, wing_w, wing_h), -90*16, 180*16)
+        painter.drawChord(QRectF(cx + body_w/2 + 5 - wing_w + wing_offset, cy - wing_h/2, wing_w, wing_h), -90*16, 180*16)
 
         # --- EYE (Complex) ---
         eye_radius = body_w * 0.28
