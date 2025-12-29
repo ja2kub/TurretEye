@@ -7,10 +7,12 @@ import pickle
 import math
 import time
 import threading
+import ctypes
 from functools import partial
 import requests
 import rawpy
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageQt
+from tqdm import tqdm
+from PIL import Image, ImageEnhance, ImageFilter, ImageOps, ImageQt, ImageDraw
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
@@ -19,7 +21,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QPushButton, QFileDialog, QMessageBox, QGraphicsView,
                              QGraphicsScene, QGraphicsPixmapItem, QGraphicsItem, QDialog,
                              QScrollArea, QFrame, QGridLayout, QSlider, QCheckBox, QMenu,
-                             QSizePolicy, QLineEdit)
+                             QSizePolicy, QLineEdit, QProgressBar)
 from PyQt6.QtCore import (Qt, QTimer, QSize, QPoint, QPointF, QEvent, QObject, pyqtSignal, QRectF)
 from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QIcon, QAction, QShortcut, QKeySequence,
                          QPainterPath, QPen, QBrush, QFont, QPolygonF)
@@ -861,7 +863,6 @@ class TurretEyeApp(QMainWindow):
         # Load thumbnails async or just simplified here
         col = 0
         for i, path in enumerate(self.image_list):
-            if i > 50: break # Limit for perf if many
 
             # Simple button with name
             name = os.path.basename(path)
@@ -977,6 +978,20 @@ class TurretEyeApp(QMainWindow):
                         self.current_image_index = data.get("index", 0)
                         self._load_current_image()
             except: pass
+
+    def save_last_session(self):
+        data = {
+            "folder": self.loaded_folder,
+            "index": self.current_image_index,
+            # Zoom/rotation are typically transient in this viewer logic or reset on load,
+            # but we save them if needed. For now, matching old behavior of saving basic state.
+            "zoom": self.viewer.transform().m11(),
+            "rotation": self.rotation
+        }
+        try:
+            with open(SESSION_FILE, "wb") as f:
+                pickle.dump(data, f)
+        except: pass
 
     def toggle_zoom_fit(self):
         # Toggle: If zoomed in (> 1.0 or significantly larger than window), zoom to fit.
