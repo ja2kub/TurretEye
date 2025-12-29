@@ -458,6 +458,11 @@ class TurretEyeApp(QMainWindow):
             }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
+                subcontrol-position: bottom;
+                subcontrol-origin: margin;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: none;
             }}
             QScrollBar:horizontal {{
                 border: none;
@@ -473,6 +478,11 @@ class TurretEyeApp(QMainWindow):
             }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
                 width: 0px;
+                subcontrol-position: right;
+                subcontrol-origin: margin;
+            }}
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: none;
             }}
         """
 
