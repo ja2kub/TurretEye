@@ -38,7 +38,8 @@ THEME_DARK = {
     "accent": "#3a82f7",
     "turret_base_fill": "#3a3a3a", "turret_base_outline": "#777",
     "turret_barrel": "#eaeaea", "turret_bubble_fill": "#222",
-    "turret_bubble_text": "#fff", "pedestal": "#2f2f2f"
+    "turret_bubble_text": "#fff", "pedestal": "#2f2f2f",
+    "scroll_handle": "#555", "scroll_bg": "#2b2b2b"
 }
 THEME_LIGHT = {
     "bg": "#ffffff", "fg": "#000000",
@@ -47,7 +48,8 @@ THEME_LIGHT = {
     "accent": "#1e5fbf",
     "turret_base_fill": "#e6e6e6", "turret_base_outline": "#888",
     "turret_barrel": "#444", "turret_bubble_fill": "#f5f5f5",
-    "turret_bubble_text": "#000", "pedestal": "#e0e0e0"
+    "turret_bubble_text": "#000", "pedestal": "#e0e0e0",
+    "scroll_handle": "#ccc", "scroll_bg": "#f0f0f0"
 }
 
 # --- Turret Graphics Item ---
@@ -147,6 +149,7 @@ class ImageViewer(QGraphicsView):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self.setAcceptDrops(True)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter) # Center small images
 
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene.addItem(self.pixmap_item)
@@ -157,7 +160,18 @@ class ImageViewer(QGraphicsView):
 
     def set_image(self, qpixmap):
         self.pixmap_item.setPixmap(qpixmap)
-        # Center view initially? logic handled in main app
+        # Ensure drag freedom
+        rect = self.pixmap_item.boundingRect()
+        # Set scene rect large enough or center logic handles it?
+        # By default QGraphicsView centers the scene if smaller.
+        # But user wants to drag it.
+        # If we set scene rect larger, we can drag.
+        w, h = rect.width(), rect.height()
+        # Make scene rect at least 3x the image size for panning freedom
+        margin_x = max(w, 2000)
+        margin_y = max(h, 2000)
+        self.scene.setSceneRect(-margin_x, -margin_y, w + 2*margin_x, h + 2*margin_y)
+        self.pixmap_item.setPos(0, 0)
 
     def wheelEvent(self, event):
         zoom_in = event.angleDelta().y() > 0
@@ -240,7 +254,6 @@ class TurretEyeApp(QMainWindow):
             icon_path = os.path.join(os.path.dirname(__file__), "TurretEye.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-            # WinAPI app id for taskbar grouping
             try:
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TurretEye")
             except: pass
@@ -287,7 +300,6 @@ class TurretEyeApp(QMainWindow):
         # Overlay Counter (Floating label)
         self.counter_label = QLabel("", self.viewer)
         self.counter_label.setStyleSheet("background: transparent; color: white; font-weight: bold; font-family: 'Segoe UI'; font-size: 14px; padding: 5px;")
-        self.counter_label.move(self.width() - 80, 10)
 
         # Status Bar
         self.status_bar = QLabel("")
@@ -316,6 +328,12 @@ class TurretEyeApp(QMainWindow):
 
         # Load session
         self.load_last_session()
+
+    def resizeEvent(self, event):
+        # Update counter position
+        if self.counter_label.isVisible():
+            self.counter_label.move(self.width() - self.counter_label.width() - 20, 20)
+        super().resizeEvent(event)
 
     def _create_buttons(self):
         # Icons as text like original
@@ -381,18 +399,49 @@ class TurretEyeApp(QMainWindow):
     def apply_theme(self):
         t = THEME_DARK if self.is_dark_theme else THEME_LIGHT
         self.setStyleSheet(f"""
-            QMainWindow, QWidget {{ background-color: {t['bg']}; color: {t['fg']}; }}
+            QMainWindow, QWidget {{ background-color: {t['bg']}; color: {t['fg']}; font-family: 'Segoe UI'; }}
             QLabel {{ color: {t['fg']}; }}
             QPushButton {{
                 background-color: {t['btn_bg']};
                 color: {t['fg']};
                 border: none;
-                border-radius: 0px;
+                border-radius: 4px;
+                padding: 4px;
             }}
             QPushButton:hover {{ background-color: {t['hover_bg']}; }}
+            QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
             QDialog {{ background-color: {t['bg']}; }}
             QMenu {{ background-color: {t['bg']}; color: {t['fg']}; border: 1px solid {t['border']}; }}
             QMenu::item:selected {{ background-color: {t['hover_bg']}; }}
+
+            QScrollBar:vertical {{
+                border: none;
+                background: {t['scroll_bg']};
+                width: 10px;
+                margin: 0px 0px 0px 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {t['scroll_handle']};
+                min-height: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                border: none;
+                background: {t['scroll_bg']};
+                height: 10px;
+                margin: 0px 0px 0px 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {t['scroll_handle']};
+                min-width: 20px;
+                border-radius: 5px;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
         """)
         # Update Canvas/Turret theme
         self.viewer.setBackgroundBrush(QBrush(QColor(t['bg'])))
@@ -491,7 +540,7 @@ class TurretEyeApp(QMainWindow):
 
             # Reset view zoom/pos (center)
             self.viewer.resetTransform()
-            self._center_image()
+            QTimer.singleShot(0, self._center_image) # Delay fit to allow layout update
 
         except Exception as e:
             print(f"Error loading {path}: {e}")
@@ -817,18 +866,18 @@ class TurretEyeApp(QMainWindow):
             # Simple button with name
             name = os.path.basename(path)
             btn = QPushButton(name)
-            btn.setFixedSize(120, 100)
+            btn.setFixedSize(140, 120)
             # Try to load thumb
             if path not in self.thumb_cache:
                 try:
                     im = Image.open(path)
-                    im.thumbnail((100, 80))
+                    im.thumbnail((120, 100)) # Aspect Ratio fix
                     self.thumb_cache[path] = ImageQt.toqpixmap(im)
                 except: pass
 
             if path in self.thumb_cache:
                 btn.setIcon(QIcon(self.thumb_cache[path]))
-                btn.setIconSize(QSize(80, 60))
+                btn.setIconSize(QSize(120, 80)) # Aspect
 
             btn.clicked.connect(partial(self.nav_jump, i, d))
             grid.addWidget(btn, 0, col)
@@ -930,12 +979,29 @@ class TurretEyeApp(QMainWindow):
             except: pass
 
     def toggle_zoom_fit(self):
-        # 1:1 or Fit
-        if self.viewer.transform().m11() > 1.0:
+        # Toggle: If zoomed in (> 1.0 or significantly larger than window), zoom to fit.
+        # If at fit or smaller, zoom to 1.0 (100%).
+
+        current_scale = self.viewer.transform().m11()
+
+        # Calculate scale needed to fit
+        if self.viewer.pixmap_item.pixmap().isNull(): return
+
+        view_rect = self.viewer.viewport().rect()
+        pix_rect = self.viewer.pixmap_item.boundingRect()
+
+        fit_scale_w = view_rect.width() / pix_rect.width()
+        fit_scale_h = view_rect.height() / pix_rect.height()
+        fit_scale = min(fit_scale_w, fit_scale_h)
+
+        # Threshold to decide "are we fit?"
+        if current_scale > fit_scale * 1.1:
+            # We are zoomed in -> Zoom out to fit
             self.viewer.fitInView(self.viewer.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
         else:
+            # We are fit or small -> Zoom to 100%
             self.viewer.resetTransform()
-            self.viewer.scale(1.0, 1.0) # 100%
+            self.viewer.scale(1.0, 1.0)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
