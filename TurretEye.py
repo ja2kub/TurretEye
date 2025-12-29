@@ -41,7 +41,7 @@ THEME_DARK = {
     "turret_base_fill": "#3a3a3a", "turret_base_outline": "#777",
     "turret_barrel": "#eaeaea", "turret_bubble_fill": "#222",
     "turret_bubble_text": "#fff", "pedestal": "#2f2f2f",
-    "scroll_handle": "#555", "scroll_bg": "#2b2b2b"
+    "scroll_handle": "#666", "scroll_bg": "#1c1c1c"
 }
 THEME_LIGHT = {
     "bg": "#ffffff", "fg": "#000000",
@@ -51,7 +51,7 @@ THEME_LIGHT = {
     "turret_base_fill": "#e6e6e6", "turret_base_outline": "#888",
     "turret_barrel": "#444", "turret_bubble_fill": "#f5f5f5",
     "turret_bubble_text": "#000", "pedestal": "#e0e0e0",
-    "scroll_handle": "#ccc", "scroll_bg": "#f0f0f0"
+    "scroll_handle": "#bbb", "scroll_bg": "#f0f0f0"
 }
 
 # --- Workers ---
@@ -85,87 +85,6 @@ class PdfExportWorker(QThread):
         except Exception as e:
             self.finished.emit(f"Błąd eksportu: {str(e)}")
 
-# --- Turret Graphics Item ---
-class TurretItem(QGraphicsItem):
-    def __init__(self, theme_colors):
-        super().__init__()
-        self.theme = theme_colors
-        self.radius = 18
-        self.angle = 0
-        self.target_pos = QPointF(0, 0)
-        self.show_bubble = False
-        # Create children
-        self.base_rect = QRectF(-self.radius, -self.radius, self.radius*2, self.radius*2)
-
-        # Pedestal
-        r = self.radius
-        self.pedestal_rect = QRectF(-r*1.4, r+2, r*2.8, 8)
-
-        # Bubble geometry
-        self.bw, self.bh = 172, 34
-
-    def boundingRect(self):
-        # Rough bounding rect covering everything
-        return QRectF(-200, -200, 400, 400)
-
-    def paint(self, painter, option, widget):
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Draw Pedestal
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(self.theme["pedestal"]))
-        painter.drawRect(self.pedestal_rect)
-
-        # Draw Base
-        painter.setPen(QPen(QColor(self.theme["turret_base_outline"]), 2))
-        painter.setBrush(QColor(self.theme["turret_base_fill"]))
-        painter.drawEllipse(self.base_rect)
-
-        # Draw Barrel (Rotated)
-        painter.save()
-        painter.rotate(math.degrees(self.angle))
-        painter.setPen(QPen(QColor("#ff2b2b"), 4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-        barrel_len = int(self.radius * 1.6)
-        painter.drawLine(0, 0, barrel_len, 0)
-        painter.restore()
-
-        # Draw Bubble if active
-        if self.show_bubble:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(self.theme["turret_bubble_fill"]))
-
-            # Bubble position relative to turret center
-            bx1 = -self.bw - 14
-            by1 = -self.radius - 14 - self.bh
-            rect = QRectF(bx1, by1, self.bw, self.bh)
-            painter.drawRoundedRect(rect, 10, 10)
-
-            # Tail
-            tail = QPolygonF([
-                QPointF(bx1 + self.bw - 20, by1 + self.bh),
-                QPointF(-self.radius - 2, -self.radius - 2), # Tip
-                QPointF(bx1 + self.bw - 10, by1 + self.bh - 10)
-            ])
-            painter.drawPolygon(tail)
-
-            # Text
-            painter.setPen(QColor(self.theme["turret_bubble_text"]))
-            painter.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "Are you still there?")
-
-    def update_aim(self, target_scene_pos):
-        pos = self.scenePos()
-        dx = target_scene_pos.x() - pos.x()
-        dy = target_scene_pos.y() - pos.y()
-        self.angle = math.atan2(dy, dx)
-        dist = math.hypot(dx, dy)
-        self.show_bubble = (dist <= 100)
-        self.update()
-
-    def set_theme(self, theme):
-        self.theme = theme
-        self.update()
-
 # --- Custom Canvas (Graphics View) ---
 class ImageViewer(QGraphicsView):
     fileDropped = pyqtSignal(str)
@@ -187,9 +106,11 @@ class ImageViewer(QGraphicsView):
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene.addItem(self.pixmap_item)
 
-        self.turret_item = None
         self.turret_mode = False
-        self.current_theme = None
+        self.current_theme = THEME_DARK # Default fallback
+        self.last_mouse_pos = QPoint(0, 0)
+        self.turret_angle = 0
+        self.turret_dist = 1000
 
     def set_image(self, qpixmap):
         self.pixmap_item.setPixmap(qpixmap)
@@ -206,12 +127,12 @@ class ImageViewer(QGraphicsView):
         zoom_in = event.angleDelta().y() > 0
         factor = 1.1 if zoom_in else 1 / 1.1
         self.scale(factor, factor)
+        # Repaint foreground to update turret if needed (though it draws relative to view)
+        if self.turret_mode: self.viewport().update()
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
+        if event.mimeData().hasUrls(): event.accept()
+        else: event.ignore()
 
     def dragMoveEvent(self, event):
         event.accept()
@@ -226,46 +147,104 @@ class ImageViewer(QGraphicsView):
         super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event):
-        if self.turret_mode and self.turret_item:
-            scene_pos = self.mapToScene(event.pos())
-            self.turret_item.update_aim(scene_pos)
+        if self.turret_mode:
+            self.last_mouse_pos = event.pos()
+            self.viewport().update() # Redraw foreground
         super().mouseMoveEvent(event)
-
-    def resizeEvent(self, event):
-        if self.turret_mode and self.turret_item:
-            self._position_turret()
-        super().resizeEvent(event)
 
     def toggle_turret(self, enable, theme):
         self.current_theme = theme
-        if enable:
-            if not self.turret_item:
-                self.turret_item = TurretItem(theme)
-                self.turret_item.setZValue(1000) # Always on top
-                self.scene.addItem(self.turret_item)
-            self.turret_mode = True
-            self.setMouseTracking(True) # Need this for hover events without clicking
-            self._position_turret()
-        else:
-            if self.turret_item:
-                self.scene.removeItem(self.turret_item)
-                self.turret_item = None
-            self.turret_mode = False
-            self.setMouseTracking(False)
+        self.turret_mode = enable
+        self.setMouseTracking(enable)
+        self.viewport().update()
 
     def update_turret_theme(self, theme):
         self.current_theme = theme
-        if self.turret_item:
-            self.turret_item.set_theme(theme)
+        if self.turret_mode: self.viewport().update()
 
-    def _position_turret(self):
-        if not self.turret_item: return
-        # Position bottom-right of viewport
-        vp_rect = self.viewport().rect()
-        scene_pos = self.mapToScene(vp_rect.bottomRight())
-        # Adjust for margin
-        margin = 34 # radius + padding
-        self.turret_item.setPos(scene_pos.x() - margin, scene_pos.y() - margin)
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        if not self.turret_mode: return
+
+        # --- TURRET DRAWING (Overlay in Viewport Coords) ---
+        # "zrób go tak by jego rozmiar nie był zależny od zdjęcia..."
+        # We need to map viewport coordinates to the scene rect passed to drawForeground
+        # But wait, drawForeground passes 'rect' which is the exposed scene rect.
+        # Painter is set up for scene coordinates!
+        # To draw "HUD" style fixed elements, we must reset the transform.
+
+        painter.save()
+        painter.resetTransform() # Now 0,0 is top-left of viewport (widget)
+
+        vp_width = self.viewport().width()
+        vp_height = self.viewport().height()
+
+        # Turret Geometry (Larger as requested)
+        radius = 32 # Increased from 18
+        margin = 48 # Distance from corner
+        tx = vp_width - margin
+        ty = vp_height - margin
+
+        # Mouse Aim
+        mx = self.last_mouse_pos.x()
+        my = self.last_mouse_pos.y()
+        dx = mx - tx
+        dy = my - ty
+        angle = math.atan2(dy, dx)
+        dist = math.hypot(dx, dy)
+
+        # Theme colors
+        t = self.current_theme
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 1. Pedestal
+        ped_w = radius * 1.4
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(t["pedestal"]))
+        # rect(x, y, w, h)
+        painter.drawRect(int(tx - ped_w), int(ty + radius + 2), int(ped_w*2), 12)
+
+        # 2. Base
+        painter.setPen(QPen(QColor(t["turret_base_outline"]), 3))
+        painter.setBrush(QColor(t["turret_base_fill"]))
+        painter.drawEllipse(QPointF(tx, ty), radius, radius)
+
+        # 3. Barrel (Rotated)
+        painter.save()
+        painter.translate(tx, ty)
+        painter.rotate(math.degrees(angle))
+        painter.setPen(QPen(QColor("#ff2b2b"), 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        barrel_len = int(radius * 1.8)
+        painter.drawLine(0, 0, barrel_len, 0)
+        painter.restore()
+
+        # 4. Bubble (if close)
+        if dist <= 120: # Slightly larger range for larger turret
+            bw, bh = 190, 40
+            bx = int(tx - bw - 20)
+            by = int(ty - radius - 20 - bh)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(t["turret_bubble_fill"]))
+
+            # Bubble Body
+            painter.drawRoundedRect(bx, by, bw, bh, 12, 12)
+
+            # Tail
+            tail = QPolygonF([
+                QPointF(bx + bw - 20, by + bh),
+                QPointF(tx - radius - 4, ty - radius - 4), # Tip towards turret
+                QPointF(bx + bw - 10, by + bh - 10)
+            ])
+            painter.drawPolygon(tail)
+
+            # Text
+            painter.setPen(QColor(t["turret_bubble_text"]))
+            painter.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+            painter.drawText(QRectF(bx, by, bw, bh), Qt.AlignmentFlag.AlignCenter, "Are you still there?")
+
+        painter.restore()
 
 
 # --- Main Application ---
@@ -434,69 +413,72 @@ class TurretEyeApp(QMainWindow):
 
     def apply_theme(self):
         t = THEME_DARK if self.is_dark_theme else THEME_LIGHT
+
+        # Stylesheet string
+        qss = f"""
+            QWidget {{ background-color: {t['bg']}; color: {t['fg']}; font-family: 'Segoe UI'; }}
+            QLabel {{ color: {t['fg']}; }}
+            QPushButton {{
+                background-color: {t['btn_bg']};
+                color: {t['fg']};
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+            }}
+            QPushButton:hover {{ background-color: {t['hover_bg']}; }}
+            QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
+
+            QToolButton {{
+                background-color: {t['btn_bg']};
+                color: {t['fg']};
+                border: none;
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QToolButton:hover {{ background-color: {t['hover_bg']}; }}
+            QToolButton:pressed {{ background-color: {t['accent']}; color: white; }}
+
+            QDialog {{ background-color: {t['bg']}; }}
+
+            QMenu {{ background-color: {t['bg']}; color: {t['fg']}; border: 1px solid {t['border']}; padding: 5px; }}
+            QMenu::item {{ padding: 6px 20px; }}
+            QMenu::item:selected {{ background-color: {t['hover_bg']}; }}
+
+            QScrollBar:vertical {{
+                border: none;
+                background: {t['scroll_bg']};
+                width: 16px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {t['scroll_handle']};
+                min-height: 20px;
+                border-radius: 8px;
+                margin: 2px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px;
+            }}
+            QScrollBar:horizontal {{
+                border: none;
+                background: {t['scroll_bg']};
+                height: 16px;
+                margin: 0px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {t['scroll_handle']};
+                min-width: 20px;
+                border-radius: 8px;
+                margin: 2px;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px;
+            }}
+        """
+
         # Apply to QApplication to ensure dialogs get it
         app = QApplication.instance()
-        if app:
-            app.setStyleSheet(f"""
-                QWidget {{ background-color: {t['bg']}; color: {t['fg']}; font-family: 'Segoe UI'; }}
-                QLabel {{ color: {t['fg']}; }}
-                QPushButton {{
-                    background-color: {t['btn_bg']};
-                    color: {t['fg']};
-                    border: none;
-                    border-radius: 4px;
-                    padding: 4px;
-                }}
-                QPushButton:hover {{ background-color: {t['hover_bg']}; }}
-                QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
-
-                QToolButton {{
-                    background-color: {t['btn_bg']};
-                    color: {t['fg']};
-                    border: none;
-                    border-radius: 6px;
-                    padding: 4px;
-                }}
-                QToolButton:hover {{ background-color: {t['hover_bg']}; }}
-                QToolButton:pressed {{ background-color: {t['accent']}; color: white; }}
-
-                QDialog {{ background-color: {t['bg']}; }}
-
-                QMenu {{ background-color: {t['bg']}; color: {t['fg']}; border: 1px solid {t['border']}; padding: 5px; }}
-                QMenu::item {{ padding: 6px 20px; }}
-                QMenu::item:selected {{ background-color: {t['hover_bg']}; }}
-
-                QScrollBar:vertical {{
-                    border: none;
-                    background: {t['scroll_bg']};
-                    width: 12px;
-                    margin: 0px 0px 0px 0px;
-                }}
-                QScrollBar::handle:vertical {{
-                    background: {t['scroll_handle']};
-                    min-height: 20px;
-                    border-radius: 6px;
-                    margin: 2px;
-                }}
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                    height: 0px;
-                }}
-                QScrollBar:horizontal {{
-                    border: none;
-                    background: {t['scroll_bg']};
-                    height: 12px;
-                    margin: 0px 0px 0px 0px;
-                }}
-                QScrollBar::handle:horizontal {{
-                    background: {t['scroll_handle']};
-                    min-width: 20px;
-                    border-radius: 6px;
-                    margin: 2px;
-                }}
-                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-                    width: 0px;
-                }}
-            """)
+        if app: app.setStyleSheet(qss)
 
         # Update Canvas/Turret theme
         self.viewer.setBackgroundBrush(QBrush(QColor(t['bg'])))
