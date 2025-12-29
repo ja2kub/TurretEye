@@ -21,16 +21,16 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QLabel, QPushButton, QFileDialog, QMessageBox, QGraphicsView,
                              QGraphicsScene, QGraphicsPixmapItem, QGraphicsItem, QDialog,
                              QScrollArea, QFrame, QGridLayout, QSlider, QCheckBox, QMenu,
-                             QSizePolicy, QLineEdit, QProgressBar)
-from PyQt6.QtCore import (Qt, QTimer, QSize, QPoint, QPointF, QEvent, QObject, pyqtSignal, QRectF)
+                             QSizePolicy, QLineEdit, QProgressBar, QToolButton)
+from PyQt6.QtCore import (Qt, QTimer, QSize, QPoint, QPointF, QEvent, QObject, pyqtSignal, QRectF, QThread)
 from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QIcon, QAction, QShortcut, QKeySequence,
                          QPainterPath, QPen, QBrush, QFont, QPolygonF)
 
 # --- Constants & Config ---
 SESSION_FILE = "last_session.pkl"
 RAW_EXT = (".cr2", ".nef", ".arw", ".dng")
-THUMB_SIZE = (148, 148)
-THUMB_INNER = (140, 140)
+THUMB_WIDTH = 120
+THUMB_HEIGHT = 100
 
 # Colors extracted from original
 THEME_DARK = {
@@ -53,6 +53,37 @@ THEME_LIGHT = {
     "turret_bubble_text": "#000", "pedestal": "#e0e0e0",
     "scroll_handle": "#ccc", "scroll_bg": "#f0f0f0"
 }
+
+# --- Workers ---
+class PdfExportWorker(QThread):
+    finished = pyqtSignal(str) # Emits message on finish
+
+    def __init__(self, image_list, save_path, opener_func):
+        super().__init__()
+        self.image_list = image_list
+        self.save_path = save_path
+        self.opener_func = opener_func
+
+    def run(self):
+        try:
+            c = pdfcanvas.Canvas(self.save_path, pagesize=A4)
+            pw, ph = A4
+            for fpath in tqdm(self.image_list):
+                try:
+                    img = self.opener_func(fpath).convert("RGB")
+                    iw, ih = img.size
+                    scale = min(pw/iw, ph/ih)
+                    nw, nh = iw*scale, ih*scale
+                    with io.BytesIO() as bio:
+                        img.save(bio, format="PNG")
+                        bio.seek(0)
+                        c.drawImage(ImageReader(bio), (pw-nw)/2, (ph-nh)/2, nw, nh)
+                        c.showPage()
+                except: pass
+            c.save()
+            self.finished.emit("Eksport PDF zakończony sukcesem!")
+        except Exception as e:
+            self.finished.emit(f"Błąd eksportu: {str(e)}")
 
 # --- Turret Graphics Item ---
 class TurretItem(QGraphicsItem):
@@ -164,10 +195,6 @@ class ImageViewer(QGraphicsView):
         self.pixmap_item.setPixmap(qpixmap)
         # Ensure drag freedom
         rect = self.pixmap_item.boundingRect()
-        # Set scene rect large enough or center logic handles it?
-        # By default QGraphicsView centers the scene if smaller.
-        # But user wants to drag it.
-        # If we set scene rect larger, we can drag.
         w, h = rect.width(), rect.height()
         # Make scene rect at least 3x the image size for panning freedom
         margin_x = max(w, 2000)
@@ -283,7 +310,7 @@ class TurretEyeApp(QMainWindow):
         self.slideshow_timer.timeout.connect(self.slideshow_next)
         self.slideshow_timer.setInterval(5000)
 
-        # Thumb Cache
+        # Thumb Cache (Stores (pixmap, info_text))
         self.thumb_cache = {}
 
         # UI Setup
@@ -303,17 +330,18 @@ class TurretEyeApp(QMainWindow):
         self.counter_label = QLabel("", self.viewer)
         self.counter_label.setStyleSheet("background: transparent; color: white; font-weight: bold; font-family: 'Segoe UI'; font-size: 14px; padding: 5px;")
 
-        # Status Bar
-        self.status_bar = QLabel("")
-        self.status_bar.setContentsMargins(5, 2, 5, 2)
-        self.main_layout.addWidget(self.status_bar)
-
         # Controls
         self.control_bar = QWidget()
         self.control_layout = QHBoxLayout(self.control_bar)
         self.control_layout.setContentsMargins(10, 10, 10, 10)
         self.control_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.main_layout.addWidget(self.control_bar)
+
+        # Status Bar
+        self.status_bar = QLabel("")
+        self.status_bar.setContentsMargins(5, 2, 5, 2)
+        # Move Status bar to be below control bar (layout order: Viewer, Controls, Status)
+        self.main_layout.addWidget(self.status_bar)
 
         self.buttons = []
         self._create_buttons()
@@ -327,6 +355,12 @@ class TurretEyeApp(QMainWindow):
         # Context Menu
         self.viewer.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.viewer.customContextMenuRequested.connect(self.show_context_menu)
+
+        # Edit debounce timer
+        self._edit_timer = QTimer()
+        self._edit_timer.setSingleShot(True)
+        self._edit_timer.setInterval(150) # 150ms debounce
+        self._edit_timer.timeout.connect(self._apply_debounced_adjustments)
 
         # Load session
         self.load_last_session()
@@ -400,51 +434,70 @@ class TurretEyeApp(QMainWindow):
 
     def apply_theme(self):
         t = THEME_DARK if self.is_dark_theme else THEME_LIGHT
-        self.setStyleSheet(f"""
-            QMainWindow, QWidget {{ background-color: {t['bg']}; color: {t['fg']}; font-family: 'Segoe UI'; }}
-            QLabel {{ color: {t['fg']}; }}
-            QPushButton {{
-                background-color: {t['btn_bg']};
-                color: {t['fg']};
-                border: none;
-                border-radius: 4px;
-                padding: 4px;
-            }}
-            QPushButton:hover {{ background-color: {t['hover_bg']}; }}
-            QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
-            QDialog {{ background-color: {t['bg']}; }}
-            QMenu {{ background-color: {t['bg']}; color: {t['fg']}; border: 1px solid {t['border']}; }}
-            QMenu::item:selected {{ background-color: {t['hover_bg']}; }}
+        # Apply to QApplication to ensure dialogs get it
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(f"""
+                QWidget {{ background-color: {t['bg']}; color: {t['fg']}; font-family: 'Segoe UI'; }}
+                QLabel {{ color: {t['fg']}; }}
+                QPushButton {{
+                    background-color: {t['btn_bg']};
+                    color: {t['fg']};
+                    border: none;
+                    border-radius: 4px;
+                    padding: 4px;
+                }}
+                QPushButton:hover {{ background-color: {t['hover_bg']}; }}
+                QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
 
-            QScrollBar:vertical {{
-                border: none;
-                background: {t['scroll_bg']};
-                width: 10px;
-                margin: 0px 0px 0px 0px;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {t['scroll_handle']};
-                min-height: 20px;
-                border-radius: 5px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0px;
-            }}
-            QScrollBar:horizontal {{
-                border: none;
-                background: {t['scroll_bg']};
-                height: 10px;
-                margin: 0px 0px 0px 0px;
-            }}
-            QScrollBar::handle:horizontal {{
-                background: {t['scroll_handle']};
-                min-width: 20px;
-                border-radius: 5px;
-            }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-                width: 0px;
-            }}
-        """)
+                QToolButton {{
+                    background-color: {t['btn_bg']};
+                    color: {t['fg']};
+                    border: none;
+                    border-radius: 6px;
+                    padding: 4px;
+                }}
+                QToolButton:hover {{ background-color: {t['hover_bg']}; }}
+                QToolButton:pressed {{ background-color: {t['accent']}; color: white; }}
+
+                QDialog {{ background-color: {t['bg']}; }}
+
+                QMenu {{ background-color: {t['bg']}; color: {t['fg']}; border: 1px solid {t['border']}; padding: 5px; }}
+                QMenu::item {{ padding: 6px 20px; }}
+                QMenu::item:selected {{ background-color: {t['hover_bg']}; }}
+
+                QScrollBar:vertical {{
+                    border: none;
+                    background: {t['scroll_bg']};
+                    width: 12px;
+                    margin: 0px 0px 0px 0px;
+                }}
+                QScrollBar::handle:vertical {{
+                    background: {t['scroll_handle']};
+                    min-height: 20px;
+                    border-radius: 6px;
+                    margin: 2px;
+                }}
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                    height: 0px;
+                }}
+                QScrollBar:horizontal {{
+                    border: none;
+                    background: {t['scroll_bg']};
+                    height: 12px;
+                    margin: 0px 0px 0px 0px;
+                }}
+                QScrollBar::handle:horizontal {{
+                    background: {t['scroll_handle']};
+                    min-width: 20px;
+                    border-radius: 6px;
+                    margin: 2px;
+                }}
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                    width: 0px;
+                }}
+            """)
+
         # Update Canvas/Turret theme
         self.viewer.setBackgroundBrush(QBrush(QColor(t['bg'])))
         self.viewer.update_turret_theme(t)
@@ -751,24 +804,26 @@ class TurretEyeApp(QMainWindow):
         d.setWindowTitle("Edycja")
         layout = QVBoxLayout(d)
 
-        def create_slider(name, initial, callback):
+        def create_slider(name, initial, cb):
             layout.addWidget(QLabel(name))
             s = QSlider(Qt.Orientation.Horizontal)
             s.setRange(20, 300) # 0.2 to 3.0
             s.setValue(int(initial * 100))
-            s.valueChanged.connect(lambda v: callback(v/100.0))
+            s.valueChanged.connect(lambda v: cb(v/100.0))
             layout.addWidget(s)
 
-        create_slider("Jasność", self.brightness, lambda v: self._update_adjustment("b", v))
-        create_slider("Nasycenie", self.saturation, lambda v: self._update_adjustment("s", v))
-        create_slider("Ostrość", self.sharpness, lambda v: self._update_adjustment("sh", v))
+        create_slider("Jasność", self.brightness, lambda v: self._queue_adjustment("b", v))
+        create_slider("Nasycenie", self.saturation, lambda v: self._queue_adjustment("s", v))
+        create_slider("Ostrość", self.sharpness, lambda v: self._queue_adjustment("sh", v))
         d.show() # Non-modal
 
-    def _update_adjustment(self, type_, val):
+    def _queue_adjustment(self, type_, val):
         if type_ == "b": self.brightness = val
         if type_ == "s": self.saturation = val
         if type_ == "sh": self.sharpness = val
+        self._edit_timer.start() # Restart debounce
 
+    def _apply_debounced_adjustments(self):
         # Apply to base history state to avoid compounding
         if not self.history: return
         base = self.history[-1].convert("RGB")
@@ -860,25 +915,59 @@ class TurretEyeApp(QMainWindow):
         content = QWidget()
         grid = QGridLayout(content)
 
-        # Load thumbnails async or just simplified here
+        # Use QToolButton for cleaner layout (icon top, text bottom)
         col = 0
         for i, path in enumerate(self.image_list):
 
             # Simple button with name
             name = os.path.basename(path)
-            btn = QPushButton(name)
-            btn.setFixedSize(140, 120)
-            # Try to load thumb
+            # Truncate name
+            short_name = (name[:12] + '...') if len(name) > 12 else name
+
+            # --- Added Metadata Loading Logic ---
+            res_str = ""
+            size_str = ""
+
+            # Try to load thumb and info
             if path not in self.thumb_cache:
                 try:
                     im = Image.open(path)
-                    im.thumbnail((120, 100)) # Aspect Ratio fix
-                    self.thumb_cache[path] = ImageQt.toqpixmap(im)
+
+                    # Store info for reuse (optional, but good if we cache texts too)
+                    w, h = im.size
+                    res_str = f"{w}x{h}"
+
+                    # File Size
+                    try:
+                        sz = os.path.getsize(path)
+                        size_str = f"{sz/1024:.1f} KB" if sz < 1024*1024 else f"{sz/1024/1024:.1f} MB"
+                    except: pass
+
+                    # Use cover mode to avoid ugly stretching, or contain
+                    im.thumbnail((THUMB_WIDTH, THUMB_HEIGHT))
+                    # Center on a transparent background to preserve layout
+                    bg = Image.new('RGBA', (THUMB_WIDTH, THUMB_HEIGHT), (0,0,0,0))
+                    offset = ((THUMB_WIDTH - im.width) // 2, (THUMB_HEIGHT - im.height) // 2)
+                    bg.paste(im, offset)
+
+                    # Store tuple (pixmap, info_string)
+                    info_text = f"{short_name}\n{res_str}\n{size_str}"
+                    self.thumb_cache[path] = (ImageQt.toqpixmap(bg), info_text)
                 except: pass
 
+            # Create Button with Info
+            btn = QToolButton()
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            # Increase height to fit 3 lines of text
+            btn.setFixedSize(THUMB_WIDTH + 20, THUMB_HEIGHT + 60)
+
             if path in self.thumb_cache:
-                btn.setIcon(QIcon(self.thumb_cache[path]))
-                btn.setIconSize(QSize(120, 80)) # Aspect
+                pix, txt = self.thumb_cache[path]
+                btn.setIcon(QIcon(pix))
+                btn.setText(txt)
+                btn.setIconSize(QSize(THUMB_WIDTH, THUMB_HEIGHT))
+            else:
+                btn.setText(short_name)
 
             btn.clicked.connect(partial(self.nav_jump, i, d))
             grid.addWidget(btn, 0, col)
@@ -922,28 +1011,15 @@ class TurretEyeApp(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Folder do PDF", "", "PDF (*.pdf)")
         if not path: return
 
-        # Threading for progress
-        def run():
-            try:
-                c = pdfcanvas.Canvas(path, pagesize=A4)
-                pw, ph = A4
-                for fpath in tqdm(self.image_list):
-                    try:
-                        img = self._open_image(fpath).convert("RGB")
-                        iw, ih = img.size
-                        scale = min(pw/iw, ph/ih)
-                        nw, nh = iw*scale, ih*scale
-                        with io.BytesIO() as bio:
-                            img.save(bio, format="PNG")
-                            bio.seek(0)
-                            c.drawImage(ImageReader(bio), (pw-nw)/2, (ph-nh)/2, nw, nh)
-                            c.showPage()
-                    except: pass
-                c.save()
-            except Exception: pass
+        # Use QThread Worker to keep UI responsive AND give feedback
+        self.worker = PdfExportWorker(self.image_list, path, self._open_image)
+        self.worker.finished.connect(self._on_pdf_finished)
+        self.worker.start()
 
-        threading.Thread(target=run, daemon=True).start()
-        QMessageBox.information(self, "Info", "Eksport w tle...")
+        QMessageBox.information(self, "Info", "Eksport rozpoczęty w tle...")
+
+    def _on_pdf_finished(self, msg):
+        QMessageBox.information(self, "PDF Eksport", msg)
 
     def toggle_slideshow(self):
         self.slideshow_active = not self.slideshow_active
