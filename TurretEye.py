@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+import tkinter.font as tkFont
 from tkinterdnd2 import TkinterDnD
-from PIL import Image, ImageTk, ImageEnhance, ImageFilter, ImageOps, ImageChops
+from PIL import Image, ImageTk, ImageEnhance, ImageFilter, ImageOps, ImageChops, ImageDraw, ImageFont
 import os
 import sys
 import pickle
 import customtkinter as ctk
-import tkinter.font as tkFont
 import rawpy
 from reportlab.pdfgen import canvas as pdfcanvas
 from reportlab.lib.pagesizes import A4
@@ -21,11 +21,18 @@ import traceback
 import requests
 import math
 import ctypes
+from threading import Timer
 
 class TurretEyeApp:
+    _RAW_EXT = (".cr2", ".nef", ".arw", ".dng")
+    _THUMB_SIZE = (148, 148)
+    _THUMB_INNER = (140, 140)
+
     def __init__(self, root):
         self.root = root
         self.root.title("TurretEye")
+        self.root.geometry("1200x800")
+        self.root.minsize(800, 600)
 
         try:
             if hasattr(sys, "_MEIPASS"):  
@@ -39,148 +46,6 @@ class TurretEyeApp:
             self.root.iconbitmap(icon_path)
         except Exception as e:
             print("Nie udało się ustawić ikony:", e)
-
-# Ikonki / etykiety prostsze — możesz je zmienić
-prev_icon = "◀"
-next_icon = "▶"
-zoom_in_icon = "+"
-zoom_out_icon = "-"
-rotate_left_icon = "↺"
-rotate_right_icon = "↻"
-fullscreen_icon = "⛶"
-theme_icon = "☼"
-
-active_menu = None
-SESSION_FILE = "last_session.pkl"
-
-# ---------- CustomContextMenu (beznadzorowy, estetyczny) ----------
-class CustomContextMenu(ctk.CTkToplevel):
-    def __init__(self, master, commands: dict, theme: str, x: int, y: int, parent=None):
-        super().__init__(master)
-        self.withdraw()
-        self.overrideredirect(True)
-        self.attributes("-topmost", True)
-        self.theme = theme
-        self.commands = commands
-        self.submenu = None
-        self.parent = parent
-
-        self.bg = "#2b2b2b" if self.theme == "dark" else "#f5f5f5"
-        self.fg = "#ffffff" if self.theme == "dark" else "#000000"
-        self.hover = "#3d3d3d" if self.theme == "dark" else "#dddddd"
-
-        self.frame = tk.Frame(self, bg=self.bg, bd=0, highlightthickness=0)
-        self.frame.pack()
-
-        self.font = tkFont.Font(family="Segoe UI", size=11)
-        self.max_text_width = self.calculate_max_text_width()
-        self.build_menu()
-
-        self.configure(bg=self.bg)
-        try:
-            self.wm_attributes("-alpha", 0.96)
-        except:
-            pass
-
-        self.update_idletasks()
-        width = self.max_text_width
-        height = self.frame.winfo_height()
-        # safety: minimal width
-        if width < 120:
-            width = 120
-        if height < 30:
-            height = 30
-        self.geometry(f"{width}x{height}+{x}+{y}")
-        self.deiconify()
-
-        global active_menu
-        if self.parent is None:
-            if active_menu:
-                try:
-                    active_menu.destroy()
-                except:
-                    pass
-            active_menu = self
-
-        self.bind_click_outside()
-
-    def bind_click_outside(self):
-        self.master.bind("<Button-1>", self.on_click_outside)
-
-    def on_click_outside(self, event):
-        if not self._is_inside(self, event.x_root, event.y_root):
-            self.close_all_menus()
-
-    def calculate_max_text_width(self):
-        max_width = 0
-        for text, command in self.commands.items():
-            if text == "---":
-                continue
-            display_text = text + " ▶" if isinstance(command, dict) else text
-            text_width = self.font.measure(display_text)
-            max_width = max(max_width, text_width)
-        return max_width + 40
-
-    def build_menu(self):
-        for text, command in self.commands.items():
-            if text == "---":
-                sep = tk.Frame(self.frame, height=1, bg="#666" if self.theme == "dark" else "#bbb")
-                sep.pack(fill="x", padx=14, pady=6)
-                continue
-            display_text = text + " ▶" if isinstance(command, dict) else text
-            btn = tk.Label(self.frame, text=display_text, bg=self.bg, fg=self.fg,
-                           anchor="w", padx=20, pady=8, font=self.font)
-            btn.pack(fill="x")
-            if isinstance(command, dict):
-                btn.bind("<Enter>", lambda e, b=btn, c=command: [b.configure(bg=self.hover), self.open_submenu(b, c)])
-                btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=self.bg))
-            else:
-                btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=self.hover))
-                btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=self.bg))
-                btn.bind("<Button-1>", lambda e, cmd=command: [cmd(), self.close_all_menus()])
-
-    def open_submenu(self, widget, submenu_dict):
-        if self.submenu:
-            try:
-                self.submenu.destroy()
-            except:
-                pass
-        x = widget.winfo_rootx() + widget.winfo_width() - 1
-        y = widget.winfo_rooty()
-        self.submenu = CustomContextMenu(self, submenu_dict, self.theme, x, y, parent=self)
-
-    def _is_inside(self, win, x, y):
-        if not win:
-            return False
-        try:
-            return (win.winfo_rootx() <= x <= win.winfo_rootx() + win.winfo_width() and
-                    win.winfo_rooty() <= y <= win.winfo_rooty() + win.winfo_height())
-        except:
-            return False
-
-    def close_all_menus(self):
-        if self.submenu:
-            try:
-                self.submenu.destroy()
-            except:
-                pass
-        if self.parent is None:
-            global active_menu
-            if active_menu:
-                try:
-                    active_menu.destroy()
-                except:
-                    pass
-                active_menu = None
-
-
-# ---------- TurretEyeApp ----------
-class TurretEyeApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("TurretEye")
-        self.root.geometry("1200x800")
-        self.root.minsize(800, 600)
 
         # theme defaults
         self.theme = "dark"
@@ -299,16 +164,34 @@ class TurretEyeApp:
         self._turret = {
             "base": None,
             "barrel": None,
-            "bubble_rect": None,
+            "bubble_items": [],
             "bubble_text": None,
-            "tail": None,
+            "pedestal": None,
             "radius": 18,
             "margin": 16
         }
         self._last_mouse = (0, 0)
 
+        # Initialize navigation fields
+        self._nav_init_fields()
+
+        # Bindings for extra features
+        self.root.bind("<Control-b>", self._dc_open_palette_window)
+        self.root.bind("<Control-t>", self._nav_open_window)
+
     # ---------------- UI: buttons & keys ----------------
     def create_buttons(self):
+        # Ikonki / etykiety prostsze — możesz je zmienić
+        global prev_icon, next_icon, zoom_in_icon, zoom_out_icon, rotate_left_icon, rotate_right_icon, fullscreen_icon, theme_icon
+        prev_icon = "◀"
+        next_icon = "▶"
+        zoom_in_icon = "+"
+        zoom_out_icon = "-"
+        rotate_left_icon = "↺"
+        rotate_right_icon = "↻"
+        fullscreen_icon = "⛶"
+        theme_icon = "☼"
+
         def create_btn(icon, command):
             btn = tk.Label(self.control_frame, text=icon, font=("Segoe UI", 12, "bold"),
                            width=6, height=2, bd=0, relief=tk.FLAT, cursor="hand2", bg=self.btn_bg, fg=self.fg)
@@ -410,7 +293,7 @@ class TurretEyeApp:
             return best.convert("RGBA")
         elif ext == ".svg":
             try:
-                import cairosvg, io
+                import cairosvg
             except Exception as e:
                 raise RuntimeError("Do obsługi .svg wymagany jest pakiet 'cairosvg'. Zainstaluj: pip install cairosvg")
             try:
@@ -452,6 +335,10 @@ class TurretEyeApp:
                 self.display_image_from(img)
             # >>> NEW: update overlay counter
             self._update_counter_overlay()
+
+            # Nav updates
+            self._nav_update_highlight()
+            self._nav_scroll_to_index(self.current_image_index)
         except Exception as e:
             messagebox.showerror("Błąd", f"Nie udało się załadować obrazu:\n{e}")
 
@@ -500,6 +387,7 @@ class TurretEyeApp:
         self._update_counter_overlay()
         self.display_image()
         self.save_last_session()
+
 # -------------- slideshow ----------------
     def toggle_slideshow(self):
         # Start/stop fullscreen slideshow with 5s interval, Esc to exit, and fade-in only in this mode
@@ -639,6 +527,9 @@ class TurretEyeApp:
                 self.rotation = 0
                 self.display_image()
                 self.save_last_session()
+
+            self._nav_refresh()
+            self._nav_scroll_to_index(self.current_image_index)
 
     # ---------------- display helpers ----------------
     def _center_canvas(self):
@@ -983,7 +874,6 @@ class TurretEyeApp:
 
     # ---------------- edit panel ----------------
     def open_edit_panel(self):
-        from threading import Timer
         top = ctk.CTkToplevel(self.root)
         top.title("Edycja obrazu")
         top.geometry("420x360")
@@ -1183,13 +1073,13 @@ class TurretEyeApp:
             "zoom": self.zoom_factor,
             "rotation": self.rotation
         }
-        with open(SESSION_FILE, "wb") as f:
+        with open("last_session.pkl", "wb") as f:
             pickle.dump(data, f)
 
     def load_last_session(self):
-        if os.path.exists(SESSION_FILE):
+        if os.path.exists("last_session.pkl"):
             try:
-                with open(SESSION_FILE, "rb") as f:
+                with open("last_session.pkl", "rb") as f:
                     data = pickle.load(f)
                 if data.get("folder") and os.path.isdir(data["folder"]):
                     self.loaded_folder = data["folder"]
@@ -1257,6 +1147,9 @@ class TurretEyeApp:
         if getattr(self, "turret_mode", False):
             self._apply_turret_theme()
 
+        self._dc_palette_apply_theme()
+        self._nav_apply_theme()
+
     def select_file(self):
         file_path = filedialog.askopenfilename(filetypes=[
             ("Images", "*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp;*.tif;*.tiff;*.jfif;*.svg;*.cr2;*.nef;*.arw;*.dng;*.ico")
@@ -1266,6 +1159,9 @@ class TurretEyeApp:
             self.image_list = [file_path]
             self.current_image_index = 0
             self.load_image(file_path)
+
+        self._nav_refresh()
+        self._nav_scroll_to_index(self.current_image_index)
 
     # ---------------- help panel (F1) ----------------
     def open_help_panel(self):
@@ -1354,172 +1250,6 @@ class TurretEyeApp:
             self.canvas.unbind("<Motion>")
             self._destroy_turret_items()
 
-    def _create_turret_items(self):
-        # create if not present
-        if self._turret["base"] is not None:
-            return
-        r = self._turret["radius"]
-        px, py = self._get_turret_pivot()
-
-        # base (circle)
-        base = self.canvas.create_oval(px - r, py - r, px + r, py + r, width=2)
-        # barrel (line)
-        barrel_len = int(r * 1.6)
-        barrel = self.canvas.create_line(
-    px, py, px + barrel_len, py,
-    width=4, capstyle=tk.ROUND, fill="#ff2b2b"
-)
-
-        # speech bubble (rectangle + tail + text), initially hidden
-        bw, bh = 172, 34
-        bx1 = px - bw - 12
-        by1 = py - r - 12 - bh
-        bx2 = bx1 + bw
-        by2 = by1 + bh
-        bubble_rect = self.canvas.create_rectangle(bx1, by1, bx2, by2, width=2, state="hidden", outline="")
-        tail = self.canvas.create_polygon(
-            px - r - 8, py - r - 8,
-            px - r - 2, py - r - 2,
-            px - r - 18, py - r - 2,
-            state="hidden"
-        )
-        bubble_text = self.canvas.create_text((bx1 + bx2)//2, (by1 + by2)//2,
-                                      text="Are you still there?",
-                                      font=("Segoe UI", 11, "bold"),
-                                      fill="#00FFFF",
-                                      state="hidden")
-
-        self._turret["base"] = base
-        self._turret["barrel"] = barrel
-        self._turret["bubble_rect"] = bubble_rect
-        self._turret["bubble_text"] = bubble_text
-        self._turret["tail"] = tail
-
-        # keep turret above image
-        self.canvas.tag_raise(base)
-        self.canvas.tag_raise(barrel)
-        self.canvas.tag_raise(bubble_rect)
-        self.canvas.tag_raise(tail)
-        self.canvas.tag_raise(bubble_text)
-
-    def _destroy_turret_items(self):
-        for key in ("base", "barrel", "bubble_rect", "bubble_text", "tail"):
-            if self._turret.get(key) is not None:
-                try:
-                    self.canvas.delete(self._turret[key])
-                except:
-                    pass
-                self._turret[key] = None
-
-    def _get_turret_pivot(self):
-        self.canvas.update_idletasks()
-        cw = max(1, self.canvas.winfo_width())
-        ch = max(1, self.canvas.winfo_height())
-        margin = self._turret["margin"]
-        r = self._turret["radius"]
-        return (cw - margin - r, ch - margin - r)
-
-    def _position_turret(self):
-        if not self.turret_mode or self._turret["base"] is None:
-            return
-        r = self._turret["radius"]
-        px, py = self._get_turret_pivot()
-
-        # move base
-        self.canvas.coords(self._turret["base"], px - r, py - r, px + r, py + r)
-        # keep barrel length/angle in _update_turret
-        self._update_turret()
-
-        # position bubble roughly above-left
-        bw, bh = 172, 34
-        bx1 = max(6, px - bw - 14)
-        by1 = max(6, py - r - 14 - bh)
-        bx2 = bx1 + bw
-        by2 = by1 + bh
-        self.canvas.coords(self._turret["bubble_rect"], bx1, by1, bx2, by2)
-        self.canvas.coords(self._turret["bubble_text"], (bx1 + bx2)//2, (by1 + by2)//2)
-        # tail pointing to turret
-        tail_tip = (px - r - 2, py - r - 2)
-        tail_left = (tail_tip[0] - 14, tail_tip[1] + 2)
-        tail_right = (tail_tip[0] - 2, tail_tip[1] + 2)
-        self.canvas.coords(self._turret["tail"], tail_tip[0], tail_tip[1], tail_right[0], tail_right[1], tail_left[0], tail_left[1])
-
-        # keep all on top
-        for key in ("base", "barrel", "bubble_rect", "tail", "bubble_text"):
-            try:
-                self.canvas.tag_raise(self._turret[key])
-            except:
-                pass
-
-    def _on_mouse_move(self, event):
-        self._last_mouse = (event.x, event.y)
-        self._update_turret()
-
-    def _theme_colors(self):
-        if self.theme == "light":
-            return dict(base_fill="#e6e6e6", base_outline="#888",
-                        barrel="#444",
-                        bubble_fill="#f5f5f5", bubble_outline="#999", bubble_text="#000")
-        else:
-            return dict(base_fill="#3a3a3a", base_outline="#777",
-                        barrel="#eaeaea",
-                        bubble_fill="#222", bubble_outline="#666", bubble_text="#fff")
-
-    def _apply_turret_theme(self):
-        if not self.turret_mode or self._turret["base"] is None:
-            return
-        col = self._theme_colors()
-        try:
-            self.canvas.itemconfig(self._turret["base"], fill=col["base_fill"], outline=col["base_outline"])
-            self.canvas.itemconfig(self._turret["barrel"], fill="#ff2b2b", foreground="#ff2b2b")
-            self.canvas.itemconfig(self._turret["bubble_rect"], fill=col["bubble_fill"], outline=col["bubble_outline"])
-            self.canvas.itemconfig(self._turret["bubble_text"], fill=col["bubble_text"])
-            self.canvas.itemconfig(self._turret["tail"], fill=col["bubble_fill"], outline=col["bubble_outline"])
-        except:
-            pass
-
-    def _update_turret(self):
-        if not self.turret_mode or self._turret["base"] is None:
-            return
-        px, py = self._get_turret_pivot()
-        mx, my = self._last_mouse
-
-        # aim barrel to cursor
-        dx = mx - px
-        dy = my - py
-        angle = math.atan2(dy, dx)
-        r = self._turret["radius"]
-        barrel_len = int(r * 1.8)
-        ex = px + int(barrel_len * math.cos(angle))
-        ey = py + int(barrel_len * math.sin(angle))
-        self.canvas.coords(self._turret["barrel"], px, py, ex, ey)
-
-        # show/hide bubble if cursor within 100 px
-        dist = math.hypot(dx, dy)
-        state = "normal" if dist <= 100 else "hidden"
-        try:
-            self.canvas.itemconfig(self._turret["bubble_rect"], state=state)
-            self.canvas.itemconfig(self._turret["bubble_text"], state=state)
-            self.canvas.itemconfig(self._turret["tail"], state=state)
-        except:
-            pass
-
-        # ensure turret remains on top of image
-        for key in ("base", "barrel", "bubble_rect", "tail", "bubble_text"):
-            try:
-                self.canvas.tag_raise(self._turret[key])
-            except:
-                pass
-
-    
-# =================== TURret visual patch (non-destructive) ===================
-# This block only extends behavior; it DOES NOT remove existing features.
-try:
-    import math
-    import tkinter as tk
-except Exception:
-    pass
-
     def _pv_draw_rounded_bubble(self, bx1, by1, bx2, by2, radius, tail_tip, fill, state="hidden"):
         # Jednolite rysowanie poligonem, żeby uniknąć „szwów” i kresek
         items = []
@@ -1558,312 +1288,245 @@ except Exception:
             flat.extend((x, y))
 
         poly = self.canvas.create_polygon(
-    *flat, fill=fill, outline="", width=0, state=state, smooth=True
-)
+            *flat, fill=fill, outline="", width=0, state=state, smooth=True
+        )
 
         items.append(poly)
         return items
 
-def _pv_set_items_state(self, items, state):
-    for it in items or []:
-        try:
-            self.canvas.itemconfig(it, state=state)
-        except Exception:
-            pass
+    def _pv_set_items_state(self, items, state):
+        for it in items or []:
+            try:
+                self.canvas.itemconfig(it, state=state)
+            except Exception:
+                pass
 
-def _pv_set_items_fill(self, items, fill):
-    for it in items or []:
-        try:
-            self.canvas.itemconfig(it, fill=fill, outline="")
-        except Exception:
-            pass
+    def _pv_set_items_fill(self, items, fill):
+        for it in items or []:
+            try:
+                self.canvas.itemconfig(it, fill=fill, outline="")
+            except Exception:
+                pass
 
-def _pv_raise(self, items):
-    for it in items or []:
-        try:
-            self.canvas.tag_raise(it)
-        except Exception:
-            pass
+    def _pv_raise(self, items):
+        for it in items or []:
+            try:
+                self.canvas.tag_raise(it)
+            except Exception:
+                pass
 
-# Monkey-patch only if class exists
-try:
-    cls = TurretEyeApp
+    def _create_turret_items(self):
+        # create if not present
+        if self._turret["base"] is not None:
+            return
+        r = self._turret["radius"]
+        px, py = self._get_turret_pivot()
 
-    # Attach helpers once
-    if not hasattr(cls, "_pv_helpers_attached"):
-        cls._pv_helpers_attached = True
-        cls._pv_draw_rounded_bubble = _pv_draw_rounded_bubble
-        cls._pv_set_items_state = _pv_set_items_state
-        cls._pv_set_items_fill = _pv_set_items_fill
-        cls._pv_raise = _pv_raise
+        # base (circle)
+        base = self.canvas.create_oval(px - r, py - r, px + r, py + r, width=2)
 
-    # Ensure extra turret fields exist safely when app starts
-    orig_init = getattr(cls, "__init__")
-    def __init__patched(self, *a, **kw):
-        orig_init(self, *a, **kw)
-        if not hasattr(self, "_turret"):
-            self._turret = {}
-        self._turret.setdefault("bubble_items", [])
-        self._turret.setdefault("pedestal", None)
-    cls.__init__ = __init__patched
+        # pedestal (subtle, turret-ish)
+        ped_w = int(r * 1.4)
+        pedestal = self.canvas.create_rectangle(
+            px - ped_w, py + r + 2, px + ped_w, py + r + 10, width=0, fill=""
+        )
 
-    # Wrap creators
-    if not hasattr(cls, "_orig__create_turret_items"):
-        cls._orig__create_turret_items = cls._create_turret_items
+        # barrel (line)
+        barrel_len = int(r * 1.6)
+        barrel = self.canvas.create_line(
+            px, py, px + barrel_len, py,
+            width=4, capstyle=tk.ROUND, fill="#ff2b2b"
+        )
 
-    def _create_turret_items_patched(self):
-        # run original creation
-        self._orig__create_turret_items()
-        # add pedestal (subtle, turret-ish)
-        try:
-            if self._turret.get("pedestal") is None and self._turret.get("base") is not None:
-                r = self._turret.get("radius", 18)
-                px, py = self._get_turret_pivot()
-                ped_w = int(r * 1.4)
-                self._turret["pedestal"] = self.canvas.create_rectangle(
-                    px - ped_w, py + r + 2, px + ped_w, py + r + 10, width=0, fill=""
-                )
-        except Exception:
-            pass
+        # rounded bubble items (hidden initially)
+        bw, bh = 172, 34
+        bx1 = max(6, px - bw - 14)
+        by1 = max(6, py - r - 14 - bh)
+        bx2 = bx1 + bw
+        by2 = by1 + bh
+        tail_tip = (px - r - 2, py - r - 2)
+        col = self._theme_colors()
+        bubble_items = self._pv_draw_rounded_bubble(
+            bx1, by1, bx2, by2, 10, tail_tip, col.get("bubble_fill", "#f5f5f5"), state="hidden"
+        )
 
-        # hide original rectangular bubble + tail (avoid artifact pixels)
-        try:
-            if self._turret.get("bubble_rect"):
-                self.canvas.itemconfig(self._turret["bubble_rect"], state="hidden", outline="")
-            if self._turret.get("tail"):
-                self.canvas.itemconfig(self._turret["tail"], state="hidden", outline="")
-        except Exception:
-            pass
+        bubble_text = self.canvas.create_text((bx1 + bx2)//2, (by1 + by2)//2,
+                                      text="Are you still there?",
+                                      font=("Segoe UI", 11, "bold"),
+                                      fill="#00FFFF",
+                                      state="hidden")
 
-        # create rounded bubble items if not present
-        try:
-            if not self._turret.get("bubble_items"):
-                r = self._turret.get("radius", 18)
-                px, py = self._get_turret_pivot()
-                bw, bh = 176, 38
-                bx1 = px - bw - 14
-                by1 = py - r - 16 - bh
-                bx2 = bx1 + bw
-                by2 = by1 + bh
-                tail_tip = (px - r - 2, py - r - 2)
-                col = self._theme_colors() if hasattr(self, "_theme_colors") else {
-                    "bubble_fill": "#f5f5f5", "bubble_text": "#000"
-                }
-                self._turret["bubble_items"] = self._pv_draw_rounded_bubble(
-                    bx1, by1, bx2, by2, 10, tail_tip, col.get("bubble_fill", "#f5f5f5"), state="hidden"
-                )
-                # raise above
-                self._pv_raise(self._turret["bubble_items"])
-                if self._turret.get("bubble_text"):
-                    self.canvas.tag_raise(self._turret["bubble_text"])
-        except Exception:
-            pass
+        self._turret["base"] = base
+        self._turret["barrel"] = barrel
+        self._turret["pedestal"] = pedestal
+        self._turret["bubble_items"] = bubble_items
+        self._turret["bubble_text"] = bubble_text
+        self._turret["bubble_rect"] = None # not using rect
+        self._turret["tail"] = None # not using default tail
 
-        # apply theme for new items + pedestal
+        # keep turret above image
+        self.canvas.tag_raise(pedestal)
+        self.canvas.tag_raise(base)
+        self.canvas.tag_raise(barrel)
+        self._pv_raise(bubble_items)
+        self.canvas.tag_raise(bubble_text)
+
         self._apply_turret_theme()
 
-    cls._create_turret_items = _create_turret_items_patched
-
-    # Wrap positioner
-    if not hasattr(cls, "_orig__position_turret"):
-        cls._orig__position_turret = cls._position_turret
-
-    def _position_turret_patched(self):
-        self._orig__position_turret()
-        try:
-            if not getattr(self, "turret_mode", False) or self._turret.get("base") is None:
-                return
-            r = self._turret.get("radius", 18)
-            px, py = self._get_turret_pivot()
-            # pedestal
-            ped_w = int(r * 1.4)
-            if self._turret.get("pedestal"):
-                self.canvas.coords(self._turret["pedestal"], px - ped_w, py + r + 2, px + ped_w, py + r + 10)
-            # bubble
-            bw, bh = 176, 38
-            bx1 = max(6, px - bw - 16)
-            by1 = max(6, py - r - 18 - bh)
-            bx2 = bx1 + bw
-            by2 = by1 + bh
-            for it in self._turret.get("bubble_items", []):
-                # we reconstruct instead of moving corners -> simplest is to move rectangles/ovals via coords
-                # Determine type by current coords count (rectangle: 4, oval:4, polygon: variable)
+    def _destroy_turret_items(self):
+        for key in ("base", "barrel", "bubble_rect", "bubble_text", "tail", "pedestal"):
+            if self._turret.get(key) is not None:
                 try:
-                    t = self.canvas.type(it)
-                    if t == "rectangle":
-                        # keep width/height from rounded logic
-                        # figure out if horizontal bar or vertical bar by size
-                        x1,y1,x2,y2 = self.canvas.coords(it)
-                        if abs((x2-x1) - (bx2 - bx1 - 2*10)) < abs((x2-x1) - (bx2 - bx1)):
-                            # center bar (horizontal)
-                            self.canvas.coords(it, bx1 + 10, by1, bx2 - 10, by2)
-                        else:
-                            # vertical bar
-                            self.canvas.coords(it, bx1, by1 + 10, bx2, by2 - 10)
-                    elif t == "oval":
-                        # determine quadrant by current coords index
-                        idx = self._turret["bubble_items"].index(it)
-                        if idx == 2:   # top-left
-                            self.canvas.coords(it, bx1, by1, bx1 + 20, by1 + 20)
-                        elif idx == 3: # top-right
-                            self.canvas.coords(it, bx2 - 20, by1, bx2, by1 + 20)
-                        elif idx == 4: # bottom-left
-                            self.canvas.coords(it, bx1, by2 - 20, bx1 + 20, by2)
-                        else:          # bottom-right
-                            self.canvas.coords(it, bx2 - 20, by2 - 20, bx2, by2)
-                    elif t == "polygon":
-                        # tail
-                        tail_tip = (px - r - 2, py - r - 2)
-                        base_x = bx2 - 10
-                        base_y = by2 - 5
-                        self.canvas.coords(it, base_x - 10, base_y, base_x + 2, base_y + 4, tail_tip[0], tail_tip[1])
-                except Exception:
+                    self.canvas.delete(self._turret[key])
+                except:
                     pass
-            # text move
+                self._turret[key] = None
+
+        for it in self._turret.get("bubble_items", []):
+            try: self.canvas.delete(it)
+            except Exception: pass
+        self._turret["bubble_items"] = []
+
+    def _get_turret_pivot(self):
+        self.canvas.update_idletasks()
+        cw = max(1, self.canvas.winfo_width())
+        ch = max(1, self.canvas.winfo_height())
+        margin = self._turret["margin"]
+        r = self._turret["radius"]
+        return (cw - margin - r, ch - margin - r)
+
+    def _position_turret(self):
+        if not self.turret_mode or self._turret["base"] is None:
+            return
+        r = self._turret["radius"]
+        px, py = self._get_turret_pivot()
+
+        # move base
+        self.canvas.coords(self._turret["base"], px - r, py - r, px + r, py + r)
+
+        # pedestal
+        ped_w = int(r * 1.4)
+        if self._turret.get("pedestal"):
+            self.canvas.coords(self._turret["pedestal"], px - ped_w, py + r + 2, px + ped_w, py + r + 10)
+
+        # barrel handled in update
+
+        # position bubble roughly above-left
+        bw, bh = 172, 34
+        bx1 = max(6, px - bw - 14)
+        by1 = max(6, py - r - 14 - bh)
+        bx2 = bx1 + bw
+        by2 = by1 + bh
+
+        # rebuild rounded bubble at new position
+        try:
+            # delete previous rounded bubble items
+            if self._turret.get("bubble_items"):
+                for it in self._turret["bubble_items"]:
+                    try:
+                        self.canvas.delete(it)
+                    except Exception:
+                        pass
+                self._turret["bubble_items"] = []
+
+            tail_tip = (px - r - 2, py - r - 2)
+            col = self._theme_colors()
+            self._turret["bubble_items"] = self._pv_draw_rounded_bubble(
+                bx1, by1, bx2, by2, 10, tail_tip, col.get("bubble_fill", "#f5f5f5"), state="hidden"
+            )
+
+            # center text
             if self._turret.get("bubble_text"):
                 self.canvas.coords(self._turret["bubble_text"], (bx1 + bx2)//2, (by1 + by2)//2)
-            # keep z-order
+
+            # z-order
             if self._turret.get("pedestal"):
                 self.canvas.tag_raise(self._turret["pedestal"])
-            for k in ("base", "barrel"):
-                if self._turret.get(k):
-                    self.canvas.tag_raise(self._turret[k])
-            self._pv_raise(self._turret.get("bubble_items", []))
-            if self._turret.get("bubble_text"):
-                self.canvas.tag_raise(self._turret["bubble_text"])
-        except Exception:
-            pass
-
-    cls._position_turret = _position_turret_patched
-
-    # Wrap theme applier
-    if not hasattr(cls, "_orig__apply_turret_theme"):
-        cls._orig__apply_turret_theme = cls._apply_turret_theme
-
-    def _apply_turret_theme_patched(self):
-        # run original (sets base colors etc.)
-        self._orig__apply_turret_theme()
-        try:
-            # enforce red barrel (laser)
+            if self._turret.get("base"):
+                self.canvas.tag_raise(self._turret["base"])
             if self._turret.get("barrel"):
-                self.canvas.itemconfig(self._turret["barrel"], fill="#ff2b2b", width=4)
-            # bubble items fill according to theme
-            col = self._theme_colors() if hasattr(self, "_theme_colors") else {
-                "bubble_fill": "#f5f5f5", "bubble_text": "#000"
-            }
-            self._pv_set_items_fill(self._turret.get("bubble_items", []), col.get("bubble_fill", "#f5f5f5"))
-            if self._turret.get("bubble_text"):
-                self.canvas.itemconfig(self._turret["bubble_text"], fill=col.get("bubble_text", "#000"))
-            # pedestal light/dark
-            if self._turret.get("pedestal"):
-                ped_fill = "#2f2f2f" if getattr(self, "theme", "dark") == "dark" else "#e0e0e0"
-                self.canvas.itemconfig(self._turret["pedestal"], fill=ped_fill, outline="")
-        except Exception:
-            pass
-
-    cls._apply_turret_theme = _apply_turret_theme_patched
-
-    # Wrap updater to manage visibility of new bubble items
-    if not hasattr(cls, "_orig__update_turret"):
-        cls._orig__update_turret = cls._update_turret
-
-    def _update_turret_patched(self):
-        self._orig__update_turret()
-        try:
-            if not getattr(self, "turret_mode", False) or self._turret.get("base") is None:
-                return
-            px, py = self._get_turret_pivot()
-            mx, my = getattr(self, "_last_mouse", (px, py))
-            dx, dy = mx - px, my - py
-            dist = (dx*dx + dy*dy) ** 0.5
-            state = "normal" if dist <= 100 else "hidden"
-            self._pv_set_items_state(self._turret.get("bubble_items", []), state)
-            if self._turret.get("bubble_text"):
-                self.canvas.itemconfig(self._turret["bubble_text"], state=state)
-            # keep top
-            if self._turret.get("pedestal"):
-                self.canvas.tag_raise(self._turret["pedestal"])
-            for k in ("base", "barrel"):
-                if self._turret.get(k):
-                    self.canvas.tag_raise(self._turret[k])
-            self._pv_raise(self._turret.get("bubble_items", []))
+                self.canvas.tag_raise(self._turret["barrel"])
+            self._pv_raise(self._turret["bubble_items"])
             if self._turret.get("bubble_text"):
                 self.canvas.tag_raise(self._turret["bubble_text"])
+
         except Exception:
             pass
 
-    cls._update_turret = _update_turret_patched
+        self._update_turret()
 
-    # Wrap destroyer to clean our extras
-    if not hasattr(cls, "_orig__destroy_turret_items"):
-        cls._orig__destroy_turret_items = cls._destroy_turret_items
+    def _on_mouse_move(self, event):
+        self._last_mouse = (event.x, event.y)
+        self._update_turret()
 
-    def _destroy_turret_items_patched(self):
-        # first run original
-        self._orig__destroy_turret_items()
-        # then remove our additions
+    def _theme_colors(self):
+        if self.theme == "light":
+            return dict(base_fill="#e6e6e6", base_outline="#888",
+                        barrel="#444",
+                        bubble_fill="#f5f5f5", bubble_outline="#999", bubble_text="#000")
+        else:
+            return dict(base_fill="#3a3a3a", base_outline="#777",
+                        barrel="#eaeaea",
+                        bubble_fill="#222", bubble_outline="#666", bubble_text="#fff")
+
+    def _apply_turret_theme(self):
+        if not self.turret_mode or self._turret["base"] is None:
+            return
+        col = self._theme_colors()
         try:
+            self.canvas.itemconfig(self._turret["base"], fill=col["base_fill"], outline=col["base_outline"])
+            self.canvas.itemconfig(self._turret["barrel"], fill="#ff2b2b", width=4)
+
+            self._pv_set_items_fill(self._turret.get("bubble_items", []), col.get("bubble_fill", "#f5f5f5"))
+            self.canvas.itemconfig(self._turret["bubble_text"], fill=col["bubble_text"])
+
+            ped_fill = "#2f2f2f" if getattr(self, "theme", "dark") == "dark" else "#e0e0e0"
             if self._turret.get("pedestal"):
-                try: self.canvas.delete(self._turret["pedestal"])
-                except Exception: pass
-                self._turret["pedestal"] = None
-            for it in self._turret.get("bubble_items", []):
-                try: self.canvas.delete(it)
-                except Exception: pass
-            self._turret["bubble_items"] = []
-        except Exception:
+                self.canvas.itemconfig(self._turret["pedestal"], fill=ped_fill, outline="")
+
+        except:
             pass
 
-    cls._destroy_turret_items = _destroy_turret_items_patched
+    def _update_turret(self):
+        if not self.turret_mode or self._turret["base"] is None:
+            return
+        px, py = self._get_turret_pivot()
+        mx, my = self._last_mouse
 
-except Exception:
-    # fail-safe: do nothing if something unexpected happens
-    pass
-# =================== end of TURret visual patch ===================
-# ---------------- MAIN ----------------
+        # aim barrel to cursor
+        dx = mx - px
+        dy = my - py
+        angle = math.atan2(dy, dx)
+        r = self._turret["radius"]
+        barrel_len = int(r * 1.8)
+        ex = px + int(barrel_len * math.cos(angle))
+        ey = py + int(barrel_len * math.sin(angle))
+        self.canvas.coords(self._turret["barrel"], px, py, ex, ey)
 
-# ---------------- MAIN ----------------
-
-def _pv_cleanup_bubble_artifacts(self):
-    """Usuwa stare prostokątne elementy dymka (bubble_rect, tail) i wymusza brak outline na bubble_items."""
-    try:
-        for _k in ("bubble_rect", "tail"):
-            _it = self._turret.get(_k)
-            if _it:
-                try:
-                    self.canvas.delete(_it)
-                except Exception:
-                    pass
-                self._turret[_k] = None
-        # Dla pewności wyczyść outline na bubble_items
+        # show/hide bubble if cursor within 100 px
+        dist = math.hypot(dx, dy)
+        state = "normal" if dist <= 100 else "hidden"
         try:
-            for _it in (self._turret.get("bubble_items") or []):
-                try:
-                    self.canvas.itemconfig(_it, outline="")
-                except Exception:
-                    pass
-        except Exception:
+            self._pv_set_items_state(self._turret.get("bubble_items", []), state)
+            self.canvas.itemconfig(self._turret["bubble_text"], state=state)
+        except:
             pass
-    except Exception:
-        pass
 
-# Podpinamy metodę do klasy, jeśli istnieje
-try:
-    TurretEyeApp._pv_cleanup_bubble_artifacts = _pv_cleanup_bubble_artifacts
-except Exception:
-    pass
+        # ensure turret remains on top of image
+        if self._turret.get("pedestal"):
+            self.canvas.tag_raise(self._turret["pedestal"])
+        for key in ("base", "barrel"):
+            try:
+                self.canvas.tag_raise(self._turret[key])
+            except:
+                pass
+        self._pv_raise(self._turret.get("bubble_items", []))
+        if self._turret.get("bubble_text"):
+            self.canvas.tag_raise(self._turret["bubble_text"])
 
-
-# ================= Dominant Colors Palette (Ctrl+B) — non-destructive patch =================
-# This block adds a separate palette window (Ctrl+B) that displays 5 dominant colors
-# and lets you save the palette as a PNG. It DOES NOT modify existing UI elements
-# or logic; it monkey-patches methods onto TurretEyeApp and wraps __init__/toggle_theme.
-
-try:
-    cls = TurretEyeApp
-
-    # --- helpers ---
-    def _dc_rgb_to_hex(rgb):
+    # ================= Dominant Colors Palette (Ctrl+B) =================
+    
+    def _dc_rgb_to_hex(self, rgb):
         return "#{:02X}{:02X}{:02X}".format(*rgb)
 
     def _dc_extract_palette(self, n=5):
@@ -1871,7 +1534,7 @@ try:
         im = getattr(self, "displayed_image", None) or getattr(self, "image", None)
         if im is None:
             return []
-        from PIL import Image
+
         # Composite on app background to avoid counting transparency as black
         img = im.convert("RGBA")
         try:
@@ -1907,7 +1570,7 @@ try:
                 rgb = (r, g, b)
             else:
                 rgb = val if isinstance(val, tuple) else (0, 0, 0)
-            top.append((_dc_rgb_to_hex(rgb), rgb, round(cnt / total * 100.0, 1)))
+            top.append((self._dc_rgb_to_hex(rgb), rgb, round(cnt / total * 100.0, 1)))
         return top
 
     def _dc_palette_apply_theme(self):
@@ -1942,14 +1605,12 @@ try:
         palette = self._dc_extract_palette(5)
         if not palette:
             try:
-                from tkinter import messagebox
                 messagebox.showinfo("TurretEye", "Najpierw otwórz obraz, aby wykryć kolory.")
             except Exception:
                 pass
             return
         self._palette_colors = palette
 
-        import tkinter as tk
         # Create window if needed
         if not getattr(self, "_palette_win", None) or not self._palette_win.winfo_exists():
             win = ctk.CTkToplevel(self.root)
@@ -2004,9 +1665,6 @@ try:
         palette = getattr(self, "_palette_colors", None) or self._dc_extract_palette(5)
         if not palette:
             return
-        from PIL import Image, ImageDraw, ImageFont
-        from tkinter import filedialog
-        import os
 
         n = len(palette)
         cell_w, cell_h = 220, 220
@@ -2061,50 +1719,7 @@ try:
             except Exception:
                 pass
 
-    # Bind helpers onto the class
-    cls._dc_extract_palette = _dc_extract_palette
-    cls._dc_open_palette_window = _dc_open_palette_window
-    cls._dc_save_palette_png = _dc_save_palette_png
-    cls._dc_palette_apply_theme = _dc_palette_apply_theme
-
-    # Wrap toggle_theme to live-update palette window styling
-    if hasattr(cls, "toggle_theme"):
-        _orig_toggle_theme_dc = cls.toggle_theme
-        def _toggle_theme_dc(self, *args, **kwargs):
-            _orig_toggle_theme_dc(self, *args, **kwargs)
-            try:
-                self._dc_palette_apply_theme()
-            except Exception:
-                pass
-        cls.toggle_theme = _toggle_theme_dc
-
-    # Wrap __init__ to add hotkey without touching original method
-    if hasattr(cls, "__init__"):
-        _orig_init_dc = cls.__init__
-        def _init_dc(self, *args, **kwargs):
-            _orig_init_dc(self, *args, **kwargs)
-            try:
-                self._palette_win = None
-                # Ctrl+B opens palette window
-                try:
-                    self.root.bind("<Control-b>", self._dc_open_palette_window)
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        cls.__init__ = _init_dc
-
-except Exception as _e:
-    print("Dominant Colors Palette patch failed:", _e)
-# ================= End Dominant Colors Palette patch =================
-
-# ===================== Navigation Window (Okno Nawigacji) patch [FIXED2] =====================
-try:
-    cls = TurretEyeApp
-
-    _RAW_EXT = (".cr2", ".nef", ".arw", ".dng")
-    _THUMB_SIZE = (148, 148)
-    _THUMB_INNER = (140, 140)
+    # ===================== Navigation Window (Okno Nawigacji) =====================
 
     def _nav_init_fields(self):
         self._nav_win = None
@@ -2115,7 +1730,7 @@ try:
 
     def _nav_accent(self):
         try:
-            dark = self.dark_mode if hasattr(self, "dark_mode") else True
+            dark = self.theme == "dark"
         except Exception:
             dark = True
         return "#3a82f7" if dark else "#1e5fbf"
@@ -2128,7 +1743,6 @@ try:
                 self._nav_update_highlight()
                 return
 
-            import customtkinter as ctk
             top = ctk.CTkToplevel(self.root)
             top.title("Okno nawigacji — miniatury (Ctrl+T)")
             top.geometry("1200x300+80+80")
@@ -2175,10 +1789,9 @@ try:
             print("Navigation window error:", e)
 
     def _nav_build_padded(self, pil_img):
-        from PIL import Image
-        canvas = Image.new("RGBA", _THUMB_SIZE, (0,0,0,0))
+        canvas = Image.new("RGBA", self._THUMB_SIZE, (0,0,0,0))
         img = pil_img.copy()
-        img.thumbnail(_THUMB_INNER, Image.LANCZOS)
+        img.thumbnail(self._THUMB_INNER, Image.LANCZOS)
         x = (canvas.width - img.width)//2
         y = (canvas.height - img.height)//2
         canvas.paste(img, (x, y), img if img.mode in ("RGBA", "LA") else None)
@@ -2186,24 +1799,21 @@ try:
 
     def _nav_get_thumb(self, path):
         try:
-            from PIL import Image
-            import customtkinter as ctk
             img_th = self.thumb_cache.get(path)
             if img_th is None:
                 ext = os.path.splitext(path)[1].lower()
-                if ext in _RAW_EXT:
-                    import rawpy
+                if ext in self._RAW_EXT:
                     with rawpy.imread(path) as raw:
                         rgb = raw.postprocess(use_auto_wb=True, no_auto_bright=True, output_bps=8)
                         base = Image.fromarray(rgb).convert("RGBA")
                 else:
                     base = self._open_image_with_ico_support(path)
                 img_th = base.copy()
-                img_th.thumbnail(_THUMB_INNER, Image.LANCZOS)
+                img_th.thumbnail(self._THUMB_INNER, Image.LANCZOS)
                 self.thumb_cache[path] = img_th
 
             padded = self._nav_build_padded(img_th)
-            ph = ctk.CTkImage(light_image=padded, dark_image=padded, size=_THUMB_SIZE)
+            ph = ctk.CTkImage(light_image=padded, dark_image=padded, size=self._THUMB_SIZE)
             self._nav_photo_refs[path] = ph
             return padded, ph
         except Exception as e:
@@ -2219,19 +1829,16 @@ try:
         self._nav_btns.clear()
         files = list(self.image_list)
         if not files:
-            import customtkinter as ctk
             ctk.CTkLabel(self._nav_panel, text="Brak obrazów",
                          text_color=self.fg, font=("Segoe UI", 14, "italic")).pack(pady=18)
             return
 
-        import customtkinter as ctk, os
         col = 0
         for idx, path in enumerate(files):
             _, ph = self._nav_get_thumb(path)
             base = os.path.basename(path)
             # nazwa + rozdzielczość
             try:
-                from PIL import Image
                 if path in self._img_size_cache:
                     w, h = self._img_size_cache[path]
                 else:
@@ -2242,7 +1849,7 @@ try:
             except Exception:
                 text = base if len(base) <= 26 else base[:23] + "..."
             btn = ctk.CTkButton(self._nav_panel, image=ph, text=text, compound="top",
-                                width=_THUMB_SIZE[0]+16, height=_THUMB_SIZE[1]+40,
+                                width=self._THUMB_SIZE[0]+16, height=self._THUMB_SIZE[1]+40,
                                 fg_color=self.btn_bg, hover_color=self.hover_bg,
                                 text_color=self.fg, corner_radius=14,
                                 command=lambda i=idx: self._nav_on_click(i))
@@ -2306,10 +1913,6 @@ try:
                             pass
             except Exception as e:
                 print("Nav highlight error:", e)
-    
-    
-    
-    
 
     def _nav_scroll_to_index(self, index):
         """
@@ -2470,57 +2073,129 @@ try:
         except Exception:
             pass
 
-    if hasattr(cls, "__init__"):
-        _orig_init_nav = cls.__init__
-        def _init_nav(self, *args, **kwargs):
-            _orig_init_nav(self, *args, **kwargs)
-            _nav_init_fields(self)
-            self.root.bind_all("<Control-t>", self._nav_open_window)
-        cls.__init__ = _init_nav
 
-    if hasattr(cls, "load_image"):
-        _orig_load_image_nav = cls.load_image
-        def _load_image_nav(self, *args, **kwargs):
-            res = _orig_load_image_nav(self, *args, **kwargs)
-            self._nav_update_highlight()
-            self._nav_scroll_to_index(self.current_image_index)
-            return res
-        cls.load_image = _load_image_nav
+active_menu = None
 
-    for _name in ("select_folder", "select_file"):
-        if hasattr(cls, _name):
-            _orig = getattr(cls, _name)
-            def _make_wrapper(orig_fn):
-                def _w(self, *a, **k):
-                    res = orig_fn(self, *a, **k)
-                    self._nav_refresh()
-                    self._nav_scroll_to_index(self.current_image_index)
-                    return res
-                return _w
-            setattr(cls, _name, _make_wrapper(_orig))
+# ---------- CustomContextMenu (beznadzorowy, estetyczny) ----------
+class CustomContextMenu(ctk.CTkToplevel):
+    def __init__(self, master, commands: dict, theme: str, x: int, y: int, parent=None):
+        super().__init__(master)
+        self.withdraw()
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.theme = theme
+        self.commands = commands
+        self.submenu = None
+        self.parent = parent
 
-    if hasattr(cls, "toggle_theme"):
-        _orig_toggle_theme_nav = cls.toggle_theme
-        def _toggle_theme_nav(self, *args, **kwargs):
-            r = _orig_toggle_theme_nav(self, *args, **kwargs)
-            self._nav_apply_theme()
-            return r
-        cls.toggle_theme = _toggle_theme_nav
+        self.bg = "#2b2b2b" if self.theme == "dark" else "#f5f5f5"
+        self.fg = "#ffffff" if self.theme == "dark" else "#000000"
+        self.hover = "#3d3d3d" if self.theme == "dark" else "#dddddd"
 
-    cls._nav_open_window = _nav_open_window
-    cls._nav_refresh = _nav_refresh
-    cls._nav_update_highlight = _nav_update_highlight
-    cls._nav_apply_theme = _nav_apply_theme
-    cls._nav_get_thumb = _nav_get_thumb
-    cls._nav_on_click = _nav_on_click
-    cls._nav_arrow_prev = _nav_arrow_prev
-    cls._nav_arrow_next = _nav_arrow_next
-    cls._nav_scroll_to_index = _nav_scroll_to_index
-    cls._nav_build_padded = _nav_build_padded
+        self.frame = tk.Frame(self, bg=self.bg, bd=0, highlightthickness=0)
+        self.frame.pack()
 
-except Exception as _e:
-    print("Navigation Window patch failed:", _e)
-# =================== End Navigation Window (Okno Nawigacji) patch [FIXED2] ===================
+        self.font = tkFont.Font(family="Segoe UI", size=11)
+        self.max_text_width = self.calculate_max_text_width()
+        self.build_menu()
+
+        self.configure(bg=self.bg)
+        try:
+            self.wm_attributes("-alpha", 0.96)
+        except:
+            pass
+
+        self.update_idletasks()
+        width = self.max_text_width
+        height = self.frame.winfo_height()
+        # safety: minimal width
+        if width < 120:
+            width = 120
+        if height < 30:
+            height = 30
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.deiconify()
+
+        global active_menu
+        if self.parent is None:
+            if active_menu:
+                try:
+                    active_menu.destroy()
+                except:
+                    pass
+            active_menu = self
+
+        self.bind_click_outside()
+
+    def bind_click_outside(self):
+        self.master.bind("<Button-1>", self.on_click_outside)
+
+    def on_click_outside(self, event):
+        if not self._is_inside(self, event.x_root, event.y_root):
+            self.close_all_menus()
+
+    def calculate_max_text_width(self):
+        max_width = 0
+        for text, command in self.commands.items():
+            if text == "---":
+                continue
+            display_text = text + " ▶" if isinstance(command, dict) else text
+            text_width = self.font.measure(display_text)
+            max_width = max(max_width, text_width)
+        return max_width + 40
+
+    def build_menu(self):
+        for text, command in self.commands.items():
+            if text == "---":
+                sep = tk.Frame(self.frame, height=1, bg="#666" if self.theme == "dark" else "#bbb")
+                sep.pack(fill="x", padx=14, pady=6)
+                continue
+            display_text = text + " ▶" if isinstance(command, dict) else text
+            btn = tk.Label(self.frame, text=display_text, bg=self.bg, fg=self.fg,
+                           anchor="w", padx=20, pady=8, font=self.font)
+            btn.pack(fill="x")
+            if isinstance(command, dict):
+                btn.bind("<Enter>", lambda e, b=btn, c=command: [b.configure(bg=self.hover), self.open_submenu(b, c)])
+                btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=self.bg))
+            else:
+                btn.bind("<Enter>", lambda e, b=btn: b.configure(bg=self.hover))
+                btn.bind("<Leave>", lambda e, b=btn: b.configure(bg=self.bg))
+                btn.bind("<Button-1>", lambda e, cmd=command: [cmd(), self.close_all_menus()])
+
+    def open_submenu(self, widget, submenu_dict):
+        if self.submenu:
+            try:
+                self.submenu.destroy()
+            except:
+                pass
+        x = widget.winfo_rootx() + widget.winfo_width() - 1
+        y = widget.winfo_rooty()
+        self.submenu = CustomContextMenu(self, submenu_dict, self.theme, x, y, parent=self)
+
+    def _is_inside(self, win, x, y):
+        if not win:
+            return False
+        try:
+            return (win.winfo_rootx() <= x <= win.winfo_rootx() + win.winfo_width() and
+                    win.winfo_rooty() <= y <= win.winfo_rooty() + win.winfo_height())
+        except:
+            return False
+
+    def close_all_menus(self):
+        if self.submenu:
+            try:
+                self.submenu.destroy()
+            except:
+                pass
+        if self.parent is None:
+            global active_menu
+            if active_menu:
+                try:
+                    active_menu.destroy()
+                except:
+                    pass
+                active_menu = None
+
 
 if __name__ == "__main__":
     try:
@@ -2547,173 +2222,3 @@ if __name__ == "__main__":
         error_msg = traceback.format_exc()
         print(error_msg)
         tk.messagebox.showerror("Błąd krytyczny", error_msg)
-
-
-
-# =================== FINAL turret bubble fix (rounded-only) ===================
-# This patch hides the original rectangular bubble permanently and uses
-# the rounded bubble drawn by _pv_draw_rounded_bubble for both creation
-# and positioning, without touching the rest of the app.
-
-try:
-    cls = TurretEyeApp
-
-    # Keep references to previous wrappers if they exist
-    if not hasattr(cls, "_final_patch_applied"):
-        cls._final_patch_applied = True
-
-        def _final_create_turret_items(self):
-            # create via existing pipeline
-            try:
-                if hasattr(self, "_orig__create_turret_items"):
-                    self._orig__create_turret_items()
-                else:
-                    # fall back to class' own method
-                    TurretEyeApp._create_turret_items(self)
-            except Exception:
-                # if anything fails, don't stop
-                pass
-
-            # hide old rectangular bubble & tail
-            try:
-                if self._turret.get("bubble_rect"):
-                    self.canvas.itemconfig(self._turret["bubble_rect"], state="hidden", outline="")
-                if self._turret.get("tail"):
-                    self.canvas.itemconfig(self._turret["tail"], state="hidden", outline="")
-            except Exception:
-                pass
-
-            # create rounded bubble (once)
-            try:
-                if not self._turret.get("bubble_items"):
-                    r = self._turret.get("radius", 18)
-                    px, py = self._get_turret_pivot()
-                    bw, bh = 172, 34
-                    bx1 = max(6, px - bw - 14)
-                    by1 = max(6, py - r - 14 - bh)
-                    bx2 = bx1 + bw
-                    by2 = by1 + bh
-                    tail_tip = (px - r - 2, py - r - 2)
-                    col = self._theme_colors()
-                    self._turret["bubble_items"] = self._pv_draw_rounded_bubble(
-                        bx1, by1, bx2, by2, 10, tail_tip, col.get("bubble_fill", "#f5f5f5"), state="hidden"
-                    )
-                    # keep on top with text
-                    self._pv_raise(self._turret["bubble_items"])
-                    if self._turret.get("bubble_text"):
-                        self.canvas.tag_raise(self._turret["bubble_text"])
-            except Exception:
-                pass
-
-            # (optional) ensure a subtle pedestal exists
-            try:
-                if self._turret.get("pedestal") is None and self._turret.get("base") is not None:
-                    r = self._turret.get("radius", 18)
-                    px, py = self._get_turret_pivot()
-                    ped_w = int(r * 1.4)
-                    self._turret["pedestal"] = self.canvas.create_rectangle(
-                        px - ped_w, py + r + 2, px + ped_w, py + r + 10, width=0, fill=""
-                    )
-            except Exception:
-                pass
-
-            # apply colors
-            try:
-                self._apply_turret_theme()
-            except Exception:
-                pass
-
-        def _final_position_turret(self):
-            if not getattr(self, "turret_mode", False) or self._turret.get("base") is None:
-                return
-            r = self._turret["radius"]
-            px, py = self._get_turret_pivot()
-
-            # base
-            self.canvas.coords(self._turret["base"], px - r, py - r, px + r, py + r)
-
-            # keep barrel managed by existing updater
-            self._update_turret()
-
-            # compute bubble bbox (mirror original logic)
-            bw, bh = 172, 34
-            bx1 = max(6, px - bw - 14)
-            by1 = max(6, py - r - 14 - bh)
-            bx2 = bx1 + bw
-            by2 = by1 + bh
-
-            # hide old rectangle & tail always
-            try:
-                if self._turret.get("bubble_rect"):
-                    self.canvas.itemconfig(self._turret["bubble_rect"], state="hidden", outline="")
-                if self._turret.get("tail"):
-                    self.canvas.itemconfig(self._turret["tail"], state="hidden", outline="")
-            except Exception:
-                pass
-
-            # rebuild rounded bubble at new position
-            try:
-                # delete previous rounded bubble items
-                if self._turret.get("bubble_items"):
-                    for it in self._turret["bubble_items"]:
-                        try:
-                            self.canvas.delete(it)
-                        except Exception:
-                            pass
-                    self._turret["bubble_items"] = []
-
-                tail_tip = (px - r - 2, py - r - 2)
-                col = self._theme_colors()
-                self._turret["bubble_items"] = self._pv_draw_rounded_bubble(
-                    bx1, by1, bx2, by2, 10, tail_tip, col.get("bubble_fill", "#f5f5f5"), state="hidden"
-                )
-
-                # center text
-                if self._turret.get("bubble_text"):
-                    self.canvas.coords(self._turret["bubble_text"], (bx1 + bx2)//2, (by1 + by2)//2)
-
-                # z-order
-                if self._turret.get("pedestal"):
-                    self.canvas.tag_raise(self._turret["pedestal"])
-                self._pv_raise(self._turret["bubble_items"])
-                if self._turret.get("bubble_text"):
-                    self.canvas.tag_raise(self._turret["bubble_text"])
-
-            except Exception:
-                pass
-
-        def _final_apply_turret_theme(self):
-            # DODAJ PONIŻSZY BLOK KODU TUTAJ, na samym początku funkcji
-            try:
-                # To ukryje stare elementy, jeśli wciąż istnieją
-                if self._turret.get("bubble_rect"):
-                    self.canvas.itemconfig(self._turret["bubble_rect"], outline="", state="hidden", fill="")
-                if self._turret.get("tail"):
-                    self.canvas.itemconfig(self._turret["tail"], outline="", state="hidden", fill="")
-            except Exception:
-                pass
-
-            # Then enforce our rounded bubble styles + hide outlines
-            try:
-                col = self._theme_colors()
-                self._pv_set_items_fill(self._turret.get("bubble_items", []), col.get("bubble_fill", "#f5f5f5"))
-                # ensure text color
-                if self._turret.get("bubble_text"):
-                    self.canvas.itemconfig(self._turret["bubble_text"], fill=col.get("bubble_text", "#000"))
-                # hide the old rectangle & tail completely
-                if self._turret.get("bubble_rect"):
-                    self.canvas.itemconfig(self._turret["bubble_rect"], outline="", state="hidden")
-                if self._turret.get("tail"):
-                    self.canvas.itemconfig(self._turret["tail"], outline="", state="hidden")
-            except Exception:
-                pass
-
-        # finally override class methods
-        cls._create_turret_items = _final_create_turret_items
-        cls._position_turret = _final_position_turret
-        cls._apply_turret_theme = _final_apply_turret_theme
-
-except Exception:
-    # If the class does not exist for some reason, silently ignore.
-    pass
-# =================== END FINAL turret bubble fix ===================
