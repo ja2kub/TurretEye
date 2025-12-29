@@ -1,5 +1,4 @@
-customtkinter
-tkinterdnd2
+PyQt6
 Pillow
 rawpy
 reportlab
