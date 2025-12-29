@@ -24,7 +24,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QH
                              QSizePolicy, QLineEdit, QProgressBar, QToolButton)
 from PyQt6.QtCore import (Qt, QTimer, QSize, QPoint, QPointF, QEvent, QObject, pyqtSignal, QRectF, QThread)
 from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QIcon, QAction, QShortcut, QKeySequence,
-                         QPainterPath, QPen, QBrush, QFont, QPolygonF)
+                         QPainterPath, QPen, QBrush, QFont, QPolygonF,
+                         QLinearGradient, QRadialGradient)
 
 # --- Constants & Config ---
 SESSION_FILE = "last_session.pkl"
@@ -187,100 +188,134 @@ class ImageViewer(QGraphicsView):
         cy = vp_h - margin_bottom
 
         # ---------------------------------------------------------
-        # Drawing: Vector Icon Style (Portal 2 Turret)
+        # Drawing: Vector Icon Style (Portal 2 Turret) - Refined
         # ---------------------------------------------------------
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1. Legs (Black, Sharp, Tapered)
-        painter.setBrush(QColor("#000000"))
+        # Calculate Angles for Laser/Eye
+        mx = self.last_mouse_pos.x()
+        my = self.last_mouse_pos.y()
+        eye_y = cy - body_h * 0.05
+        dx = mx - cx
+        dy = my - eye_y
+        dist = math.hypot(dx, dy)
+        angle = math.atan2(dy, dx)
+
+        # --- LASER SIGHT (Draw First so it's behind body if overlapping, but usually in front) ---
+        # Actually laser should originate from eye.
+        painter.save()
+        painter.translate(cx, eye_y)
+        painter.rotate(math.degrees(angle))
+
+        # Laser Line
+        laser_pen = QPen(QColor(255, 0, 0, 180), 2)
+        laser_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(laser_pen)
+        painter.drawLine(0, 0, int(dist), 0) # Draw to mouse cursor
+
+        # Laser Dot at cursor
         painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 0, 0, 200))
+        painter.drawEllipse(QPointF(dist, 0), 3, 3)
+
+        painter.restore()
+
+        # --- LEGS (More mechanical look) ---
+        painter.setPen(QPen(QColor("#1a1a1a"), 1))
+        painter.setBrush(QColor("#2b2b2b"))
+
+        # Helper to draw tapered leg
+        def draw_leg(x1, y1, x2, y2, thickness_start, thickness_end):
+            path = QPainterPath()
+            vec_x = x2 - x1
+            vec_y = y2 - y1
+            l = math.hypot(vec_x, vec_y)
+            if l == 0: return
+            nx = -vec_y / l
+            ny = vec_x / l
+
+            p1 = QPointF(x1 + nx * thickness_start, y1 + ny * thickness_start)
+            p2 = QPointF(x2 + nx * thickness_end, y2 + ny * thickness_end)
+            p3 = QPointF(x2 - nx * thickness_end, y2 - ny * thickness_end)
+            p4 = QPointF(x1 - nx * thickness_start, y1 - ny * thickness_start)
+
+            path.moveTo(p1)
+            path.lineTo(p2)
+            path.lineTo(p3)
+            path.lineTo(p4)
+            path.closeSubpath()
+            painter.drawPath(path)
 
         # Center Leg (Back)
-        leg_c_path = QPainterPath()
-        leg_c_path.moveTo(cx - 5, cy + body_h * 0.3)
-        leg_c_path.lineTo(cx + 5, cy + body_h * 0.3)
-        leg_c_path.lineTo(cx, cy + body_h * 0.8) # Tip
-        leg_c_path.closeSubpath()
-        painter.drawPath(leg_c_path)
+        draw_leg(cx, cy + body_h * 0.2, cx, cy + body_h * 0.85, 4, 1.5)
 
-        # Left Leg (Curved outwards)
-        leg_l_path = QPainterPath()
-        leg_l_path.moveTo(cx - body_w * 0.2, cy + body_h * 0.2)
-        leg_l_path.cubicTo(cx - body_w * 0.8, cy + body_h * 0.4,
-                           cx - body_w * 0.9, cy + body_h * 0.8,
-                           cx - body_w * 1.0, cy + body_h * 0.85) # Tip
-        leg_l_path.lineTo(cx - body_w * 0.85, cy + body_h * 0.85)
-        leg_l_path.cubicTo(cx - body_w * 0.7, cy + body_h * 0.7,
-                           cx - body_w * 0.4, cy + body_h * 0.4,
-                           cx - body_w * 0.1, cy + body_h * 0.3)
-        leg_l_path.closeSubpath()
-        painter.drawPath(leg_l_path)
+        # Front Left
+        draw_leg(cx - body_w * 0.25, cy + body_h * 0.3, cx - body_w * 1.1, cy + body_h * 0.9, 5, 2)
 
-        # Right Leg (Mirror Left)
-        leg_r_path = QPainterPath()
-        leg_r_path.moveTo(cx + body_w * 0.2, cy + body_h * 0.2)
-        leg_r_path.cubicTo(cx + body_w * 0.8, cy + body_h * 0.4,
-                           cx + body_w * 0.9, cy + body_h * 0.8,
-                           cx + body_w * 1.0, cy + body_h * 0.85)
-        leg_r_path.lineTo(cx + body_w * 0.85, cy + body_h * 0.85)
-        leg_r_path.cubicTo(cx + body_w * 0.7, cy + body_h * 0.7,
-                           cx + body_w * 0.4, cy + body_h * 0.4,
-                           cx + body_w * 0.1, cy + body_h * 0.3)
-        leg_r_path.closeSubpath()
-        painter.drawPath(leg_r_path)
+        # Front Right
+        draw_leg(cx + body_w * 0.25, cy + body_h * 0.3, cx + body_w * 1.1, cy + body_h * 0.9, 5, 2)
 
-        # 2. Body (Oval, Split Tones)
+
+        # --- BODY (Gradient Shading) ---
         body_rect = QRectF(cx - body_w/2, cy - body_h/2, body_w, body_h)
 
-        # Left Half (Lighter)
-        painter.setBrush(QColor("#e8e8e8"))
-        painter.drawPie(body_rect, 90 * 16, 180 * 16)
+        # Main Body Gradient (White to Grey)
+        grad = QLinearGradient(body_rect.topLeft(), body_rect.bottomRight())
+        grad.setColorAt(0.0, QColor("#ffffff"))
+        grad.setColorAt(0.4, QColor("#f0f0f0"))
+        grad.setColorAt(1.0, QColor("#b0b0b0"))
 
-        # Right Half (Darker/Shaded)
-        painter.setBrush(QColor("#bfbfbf"))
-        painter.drawPie(body_rect, 270 * 16, 180 * 16)
+        painter.setBrush(grad)
+        painter.setPen(QPen(QColor("#555555"), 1)) # Subtle outline
+        painter.drawEllipse(body_rect)
 
-        # 3. Center Line
-        painter.setPen(QPen(QColor("#222222"), 2))
+        # Center Vertical Divider (Subtle)
+        painter.setPen(QPen(QColor("#444444"), 1.5))
         painter.drawLine(QPointF(cx, cy - body_h/2), QPointF(cx, cy + body_h/2))
 
-        # 4. Side Panel Lines (Wings)
-        painter.setPen(QPen(QColor("#222222"), 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # Horizontal Divider (Equator) - roughly
+        # painter.drawArc(body_rect, 0, 180 * 16) # Optional
 
-        # Left Wing Curve
-        path_wing_l = QPainterPath()
-        path_wing_l.moveTo(cx, cy - body_h * 0.4)
-        path_wing_l.cubicTo(cx - body_w * 0.4, cy - body_h * 0.3,
-                            cx - body_w * 0.45, cy + body_h * 0.1,
-                            cx, cy + body_h * 0.4)
-        painter.drawPath(path_wing_l)
+        # Side Wings (Panels) - Separate shapes for depth
+        wing_w = body_w * 0.35
+        wing_h = body_h * 0.6
 
-        # Right Wing Curve
-        path_wing_r = QPainterPath()
-        path_wing_r.moveTo(cx, cy - body_h * 0.4)
-        path_wing_r.cubicTo(cx + body_w * 0.4, cy - body_h * 0.3,
-                            cx + body_w * 0.45, cy + body_h * 0.1,
-                            cx, cy + body_h * 0.4)
-        painter.drawPath(path_wing_r)
+        painter.setBrush(QColor("#e0e0e0"))
+        painter.setPen(QPen(QColor("#666666"), 1))
 
-        # 5. Eye
-        eye_y = cy - body_h * 0.05
-        eye_radius = body_w * 0.25
+        # Left Wing
+        painter.drawChord(QRectF(cx - body_w/2 - 5, cy - wing_h/2, wing_w, wing_h), 90*16, 180*16)
+        # Right Wing
+        painter.drawChord(QRectF(cx + body_w/2 + 5 - wing_w, cy - wing_h/2, wing_w, wing_h), -90*16, 180*16)
 
+        # --- EYE (Complex) ---
+        eye_radius = body_w * 0.28
+
+        # Black housing
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#111111"))
         painter.drawEllipse(QPointF(cx, eye_y), eye_radius, eye_radius)
 
-        # Red inner circle
-        pupil_radius = eye_radius * 0.4
-        painter.setBrush(QColor("#ff0000"))
-        painter.drawEllipse(QPointF(cx, eye_y), pupil_radius, pupil_radius)
+        # Red Glow/Pupil
+        # Dynamic pupil position based on mouse angle (subtle tracking)
+        pupil_dist = eye_radius * 0.2
+        px = cx + math.cos(angle) * pupil_dist
+        py = eye_y + math.sin(angle) * pupil_dist
+
+        pupil_radius = eye_radius * 0.5
+
+        rad_grad = QRadialGradient(px, py, pupil_radius)
+        rad_grad.setColorAt(0.0, QColor("#ff4444"))
+        rad_grad.setColorAt(0.8, QColor("#aa0000"))
+        rad_grad.setColorAt(1.0, QColor("#550000"))
+
+        painter.setBrush(rad_grad)
+        painter.drawEllipse(QPointF(px, py), pupil_radius, pupil_radius)
 
         # Shine
-        painter.setBrush(QColor("#ffffff"))
-        painter.drawEllipse(QPointF(cx + eye_radius*0.3, eye_y - eye_radius*0.3), pupil_radius*0.3, pupil_radius*0.3)
+        painter.setBrush(QColor(255, 255, 255, 200))
+        painter.drawEllipse(QPointF(px + pupil_radius*0.3, py - pupil_radius*0.3), pupil_radius*0.25, pupil_radius*0.25)
 
         # 6. Bubble Logic
         mx = self.last_mouse_pos.x()
