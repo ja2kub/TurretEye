@@ -827,7 +827,22 @@ class TurretEyeApp(QMainWindow):
 
         inp = QLineEdit()
         inp.setPlaceholderText("https://...")
-        inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # inp.setAlignment(Qt.AlignmentFlag.AlignCenter) # Removed center alignment
+        # Improved input styling
+        inp.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #3d3d3d;
+                border-radius: 8px;
+                padding: 6px 12px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #555555;
+                background-color: #333333;
+            }
+        """)
         layout.addWidget(inp)
 
         btn_layout = QHBoxLayout()
