@@ -540,7 +540,7 @@ class TurretEyeApp(QMainWindow):
                 padding: 4px;
             }}
             QPushButton:hover {{ background-color: {t['hover_bg']}; }}
-            QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
+            QPushButton:pressed {{ background-color: #4a4a4a; color: {t['fg']}; }}
 
             QToolButton {{
                 background-color: {t['btn_bg']};
@@ -815,74 +815,30 @@ class TurretEyeApp(QMainWindow):
     def load_image_from_url(self):
         # Dialog
         d = QDialog(self)
-        d.setWindowTitle("Otwórz z URL")
-        d.setMinimumWidth(500)
-        # Modern Styling
-        d.setStyleSheet("""
-            QDialog {
-                background-color: #2b2b2b;
-                border: 1px solid #444;
-                border-radius: 8px;
-            }
-            QLabel {
-                color: #e0e0e0;
-                font-family: 'Segoe UI';
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QLineEdit {
-                background-color: #1e1e1e;
-                border: 1px solid #444;
-                border-radius: 4px;
-                color: #fff;
-                padding: 10px;
-                font-size: 13px;
-                selection-background-color: #3a82f7;
-            }
-            QLineEdit:focus {
-                border: 1px solid #555;
-                background-color: #252525;
-            }
-            QPushButton {
-                background-color: #3a3a3a;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-family: 'Segoe UI';
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background-color: #4a4a4a;
-                border: 1px solid #555;
-            }
-            QPushButton#LoadBtn {
-                background-color: #2a6acd;
-            }
-            QPushButton#LoadBtn:hover {
-                background-color: #3a7add;
-            }
-        """)
-
+        d.setWindowTitle("Wklej URL obrazu")
+        d.resize(400, 150)
         layout = QVBoxLayout(d)
-        layout.setSpacing(20)
-        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title_lbl = QLabel("Podaj bezpośredni link do obrazu:")
-        layout.addWidget(title_lbl)
+        # Reverted to cleaner look, just centered as requested
+        lbl = QLabel("URL:")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl)
 
         inp = QLineEdit()
-        inp.setPlaceholderText("https://example.com/image.jpg")
+        inp.setPlaceholderText("https://...")
+        inp.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(inp)
 
         btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         btn_cancel = QPushButton("Anuluj")
+        btn_cancel.setFixedSize(100, 30)
         btn_cancel.clicked.connect(d.reject)
 
         btn_load = QPushButton("Załaduj")
-        btn_load.setObjectName("LoadBtn")
+        btn_load.setFixedSize(100, 30)
 
         btn_layout.addWidget(btn_cancel)
         btn_layout.addWidget(btn_load)
