@@ -550,7 +550,7 @@ class TurretEyeApp(QMainWindow):
                 padding: 4px;
             }}
             QToolButton:hover {{ background-color: {t['hover_bg']}; }}
-            QToolButton:pressed {{ background-color: {t['accent']}; color: white; }}
+            QToolButton:pressed {{ background-color: #4a4a4a; color: {t['fg']}; }}
 
             QDialog {{ background-color: {t['bg']}; }}
 
@@ -815,20 +815,89 @@ class TurretEyeApp(QMainWindow):
     def load_image_from_url(self):
         # Dialog
         d = QDialog(self)
-        d.setWindowTitle("Wklej URL obrazu")
-        d.resize(400, 150)
-        l = QVBoxLayout(d)
+        d.setWindowTitle("Otwórz z URL")
+        d.setMinimumWidth(500)
+        # Modern Styling
+        d.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                border: 1px solid #444;
+                border-radius: 8px;
+            }
+            QLabel {
+                color: #e0e0e0;
+                font-family: 'Segoe UI';
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QLineEdit {
+                background-color: #1e1e1e;
+                border: 1px solid #444;
+                border-radius: 4px;
+                color: #fff;
+                padding: 10px;
+                font-size: 13px;
+                selection-background-color: #3a82f7;
+            }
+            QLineEdit:focus {
+                border: 1px solid #555;
+                background-color: #252525;
+            }
+            QPushButton {
+                background-color: #3a3a3a;
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+                font-family: 'Segoe UI';
+                font-size: 13px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+                border: 1px solid #555;
+            }
+            QPushButton#LoadBtn {
+                background-color: #2a6acd;
+            }
+            QPushButton#LoadBtn:hover {
+                background-color: #3a7add;
+            }
+        """)
+
+        layout = QVBoxLayout(d)
+        layout.setSpacing(20)
+        layout.setContentsMargins(25, 25, 25, 25)
+
+        title_lbl = QLabel("Podaj bezpośredni link do obrazu:")
+        layout.addWidget(title_lbl)
+
         inp = QLineEdit()
-        inp.setPlaceholderText("https://...")
-        btn = QPushButton("Załaduj")
-        l.addWidget(QLabel("URL:"))
-        l.addWidget(inp)
-        l.addWidget(btn)
+        inp.setPlaceholderText("https://example.com/image.jpg")
+        layout.addWidget(inp)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        btn_cancel = QPushButton("Anuluj")
+        btn_cancel.clicked.connect(d.reject)
+
+        btn_load = QPushButton("Załaduj")
+        btn_load.setObjectName("LoadBtn")
+
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_load)
+        layout.addLayout(btn_layout)
 
         def do_load():
-            url = inp.text()
+            url = inp.text().strip()
+            if not url: return
             try:
-                r = requests.get(url)
+                btn_load.setText("Pobieranie...")
+                btn_load.setEnabled(False)
+                QApplication.processEvents()
+
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                r = requests.get(url, headers=headers, timeout=10)
                 r.raise_for_status()
                 img = Image.open(io.BytesIO(r.content)).convert("RGBA")
                 self.loaded_folder = None
@@ -843,9 +912,11 @@ class TurretEyeApp(QMainWindow):
                 self.status_bar.setText(f"URL: {url}")
                 d.accept()
             except Exception as e:
-                QMessageBox.critical(d, "Błąd", str(e))
+                btn_load.setText("Załaduj")
+                btn_load.setEnabled(True)
+                QMessageBox.critical(d, "Błąd", f"Nie udało się pobrać obrazu:\\n{str(e)}")
 
-        btn.clicked.connect(do_load)
+        btn_load.clicked.connect(do_load)
         d.exec()
 
     # --- Editing ---
