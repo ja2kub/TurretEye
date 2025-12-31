@@ -1082,14 +1082,30 @@ class TurretEyeApp(QMainWindow):
         d.setWindowTitle(self.tr("help_title"))
         d.resize(500, 600)
 
-        # Apply style for better look
+        # Apply style for better look (Minimalist)
         d.setStyleSheet("""
-            QDialog { background-color: #2b2b2b; }
-            QLabel { font-family: 'Segoe UI'; font-size: 14px; color: #e0e0e0; padding: 5px; }
-            QLabel#Key { font-weight: bold; color: #ffffff; background-color: #3a3a3a; border-radius: 4px; padding: 4px 8px; }
-            QLabel#Desc { color: #cccccc; }
+            QDialog { background-color: #1c1c1c; }
+            QLabel { font-family: 'Segoe UI'; font-size: 14px; color: #dddddd; padding: 5px; }
+            QLabel#Key {
+                font-weight: bold;
+                color: #ffffff;
+                border: 1px solid #444444;
+                border-radius: 4px;
+                padding: 2px 8px;
+                background-color: transparent;
+            }
+            QLabel#Desc { color: #bbbbbb; }
             QScrollArea { border: none; background-color: transparent; }
             QWidget#Content { background-color: transparent; }
+            QPushButton {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QPushButton:hover { background-color: #333333; }
+            QPushButton:pressed { background-color: #4a4a4a; }
         """)
 
         l = QVBoxLayout(d)
@@ -1188,7 +1204,7 @@ class TurretEyeApp(QMainWindow):
         sa = QScrollArea()
         sa.setWidgetResizable(True) # Fixes gaps (the "two bars" issue)
         sa.setFrameShape(QFrame.Shape.NoFrame) # Removes border "bar"
-        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff) # Removes horizontal bar if any
+        # Horizontal scrollbar restored as requested
 
         content = QWidget()
         grid = QGridLayout(content)
