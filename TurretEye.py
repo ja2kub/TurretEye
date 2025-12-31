@@ -1200,7 +1200,7 @@ class TurretEyeApp(QMainWindow):
         d.resize(800, 300)
 
         layout = QVBoxLayout(d)
-        layout.setContentsMargins(0,0,0,0)
+        layout.setContentsMargins(10, 10, 10, 10) # Added margin to detach scrollbar from bottom
         sa = QScrollArea()
         sa.setWidgetResizable(True) # Fixes gaps (the "two bars" issue)
         sa.setFrameShape(QFrame.Shape.NoFrame) # Removes border "bar"
@@ -1208,7 +1208,7 @@ class TurretEyeApp(QMainWindow):
 
         content = QWidget()
         grid = QGridLayout(content)
-        grid.setContentsMargins(10, 10, 10, 10)
+        grid.setContentsMargins(0, 0, 0, 0)
 
         # Use QToolButton for cleaner layout (icon top, text bottom)
         col = 0
