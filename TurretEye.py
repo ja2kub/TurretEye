@@ -33,6 +33,48 @@ RAW_EXT = (".cr2", ".nef", ".arw", ".dng")
 THUMB_WIDTH = 120
 THUMB_HEIGHT = 100
 
+# Translations
+TRANS = {
+    "pl": {
+        "btn_file": "Plik", "btn_folder": "Folder", "btn_save": "Zapisz", "btn_edit": "Edycja",
+        "ctx_rot_l": "Obróć w lewo", "ctx_rot_r": "Obróć w prawo", "ctx_full": "Pełny ekran", "ctx_undo": "Cofnij",
+        "ctx_style": "Stylizacja AI", "style_sketch": "Szkic", "style_oil": "Obraz olejny", "style_sepia": "Sepia", "style_contrast": "Kontrast", "style_bw": "Czarno-biały",
+        "url_title": "Wklej URL obrazu", "url_lbl": "URL:", "url_load": "Załaduj", "url_cancel": "Anuluj", "url_downloading": "Pobieranie...", "url_err_title": "Błąd", "url_err_msg": "Nie udało się pobrać obrazu:\n{}",
+        "save_title": "Zapisz jako", "save_msg": "Zapisano do:\n{}", "save_info": "Zapisano",
+        "pdf_title": "Eksport PDF", "pdf_success": "PDF zapisany.", "pdf_err_title": "Błąd",
+        "pdf_folder_title": "Folder do PDF", "pdf_bg_info": "Eksport rozpoczęty w tle...", "pdf_bg_title": "Info",
+        "pdf_worker_success": "Eksport PDF zakończony sukcesem!", "pdf_worker_err": "Błąd eksportu: {}", "pdf_box_title": "PDF Eksport",
+        "nav_title": "Nawigacja",
+        "help_title": "Skróty klawiszowe",
+        "pal_title": "Paleta kolorów", "pal_save": "Zapisz jako PNG", "pal_dlg_save": "Zapisz",
+        "edit_title": "Edycja", "edit_bright": "Jasność", "edit_sat": "Nasycenie", "edit_sharp": "Ostrość",
+        "turret_msg": "Are you still there?",
+        "file_dialog_img": "Wybierz obraz", "file_dialog_folder": "Wybierz folder",
+        "status_url": "URL: {}",
+        "h_prev": "Poprzedni / następny", "h_zoom": "Zoom", "h_full": "Pełny ekran", "h_rot": "Obrót", "h_url": "URL", "h_pal": "Paleta", "h_mir": "Lustro", "h_pdf": "PDF", "h_slide": "Pokaz slajdów", "h_undo": "Cofnij/Ponów", "h_turret": "Turret Mode", "h_scroll": "Kółko", "h_pan": "LPM+Drag", "h_lang": "Zmiana języka",
+        "open_with_url": "Otwórz z URL", "enter_link": "Podaj bezpośredni link do obrazu:"
+    },
+    "en": {
+        "btn_file": "File", "btn_folder": "Folder", "btn_save": "Save", "btn_edit": "Edit",
+        "ctx_rot_l": "Rotate Left", "ctx_rot_r": "Rotate Right", "ctx_full": "Fullscreen", "ctx_undo": "Undo",
+        "ctx_style": "AI Styling", "style_sketch": "Sketch", "style_oil": "Oil Paint", "style_sepia": "Sepia", "style_contrast": "Contrast", "style_bw": "Black & White",
+        "url_title": "Paste Image URL", "url_lbl": "URL:", "url_load": "Load", "url_cancel": "Cancel", "url_downloading": "Downloading...", "url_err_title": "Error", "url_err_msg": "Failed to download image:\n{}",
+        "save_title": "Save As", "save_msg": "Saved to:\n{}", "save_info": "Saved",
+        "pdf_title": "Export PDF", "pdf_success": "PDF saved.", "pdf_err_title": "Error",
+        "pdf_folder_title": "Folder to PDF", "pdf_bg_info": "Export started in background...", "pdf_bg_title": "Info",
+        "pdf_worker_success": "PDF export finished successfully!", "pdf_worker_err": "Export error: {}", "pdf_box_title": "PDF Export",
+        "nav_title": "Navigation",
+        "help_title": "Keyboard Shortcuts",
+        "pal_title": "Color Palette", "pal_save": "Save as PNG", "pal_dlg_save": "Save",
+        "edit_title": "Edit", "edit_bright": "Brightness", "edit_sat": "Saturation", "edit_sharp": "Sharpness",
+        "turret_msg": "Are you still there?",
+        "file_dialog_img": "Select Image", "file_dialog_folder": "Select Folder",
+        "status_url": "URL: {}",
+        "h_prev": "Prev / Next", "h_zoom": "Zoom", "h_full": "Fullscreen", "h_rot": "Rotation", "h_url": "URL", "h_pal": "Palette", "h_mir": "Mirror", "h_pdf": "PDF", "h_slide": "Slideshow", "h_undo": "Undo/Redo", "h_turret": "Turret Mode", "h_scroll": "Wheel", "h_pan": "LMB+Drag", "h_lang": "Change Language",
+        "open_with_url": "Open from URL", "enter_link": "Enter direct image link:"
+    }
+}
+
 # Colors extracted from original
 THEME_DARK = {
     "bg": "#1c1c1c", "fg": "#ffffff",
@@ -82,9 +124,9 @@ class PdfExportWorker(QThread):
                         c.showPage()
                 except: pass
             c.save()
-            self.finished.emit("Eksport PDF zakończony sukcesem!")
+            self.finished.emit("SUCCESS")
         except Exception as e:
-            self.finished.emit(f"Błąd eksportu: {str(e)}")
+            self.finished.emit(f"ERROR||{str(e)}")
 
 # --- Custom Canvas (Graphics View) ---
 class ImageViewer(QGraphicsView):
@@ -112,6 +154,11 @@ class ImageViewer(QGraphicsView):
         self.last_mouse_pos = QPoint(0, 0)
         self.turret_angle = 0
         self.turret_dist = 1000
+        self.turret_text_str = "Are you still there?"
+
+    def set_turret_text(self, text):
+        self.turret_text_str = text
+        if self.turret_mode: self.viewport().update()
 
     def set_image(self, qpixmap):
         self.pixmap_item.setPixmap(qpixmap)
@@ -356,7 +403,7 @@ class ImageViewer(QGraphicsView):
 
             painter.setPen(QColor(self.current_theme["turret_bubble_text"]))
             painter.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-            painter.drawText(QRectF(bx, by, bw, bh), Qt.AlignmentFlag.AlignCenter, "Are you still there?")
+            painter.drawText(QRectF(bx, by, bw, bh), Qt.AlignmentFlag.AlignCenter, self.turret_text_str)
 
         painter.restore()
 
@@ -396,6 +443,7 @@ class TurretEyeApp(QMainWindow):
         self.future = []
 
         self.is_dark_theme = True
+        self.language = "pl"
         self.turret_active = False
 
         self.slideshow_active = False
@@ -464,31 +512,70 @@ class TurretEyeApp(QMainWindow):
             self.counter_label.move(self.width() - self.counter_label.width() - 20, 20)
         super().resizeEvent(event)
 
+    def tr(self, key):
+        return TRANS.get(self.language, TRANS["pl"]).get(key, key)
+
+    def toggle_language(self):
+        self.language = "en" if self.language == "pl" else "pl"
+        self.refresh_ui_text()
+
+    def refresh_ui_text(self):
+        # Update buttons
+        for btn in self.buttons:
+            key = getattr(btn, "_tr_key", None)
+            if key:
+                btn.setText(self.tr(key))
+
+        # Update turret
+        self.viewer.set_turret_text(self.tr("turret_msg"))
+
+        # Update status bar if it has URL
+        txt = self.status_bar.text()
+        if txt.startswith("URL:"):
+            # We can't easily parse back the URL from the translated string without more state.
+            # But the user asked for URL: to be centered in dialog, here we are talking about status bar.
+            # The status bar updates on load. If language changes, we might want to refresh status text.
+            # But we don't store the raw filename/url easily accessible other than last_loaded_path
+            # We can re-call update_status_bar()
+            self.update_status_bar()
+
     def _create_buttons(self):
-        # Icons as text like original
-        btns = [
-            ("◀", self.show_prev_image),
-            ("▶", self.show_next_image),
-            ("+", self.zoom_in),
-            ("-", self.zoom_out),
-            ("↺", self.rotate_left),
-            ("↻", self.rotate_right),
-            ("⛶", self.toggle_fullscreen_mode),
-            ("☼", self.toggle_theme),
-            ("Plik", self.select_file),
-            ("Folder", self.select_folder),
-            ("Zapisz", self.save_image_as),
-            ("Edycja", self.open_edit_panel)
+        # Icons as text like original. (Key, Text/Icon, Func)
+        # If Key is None, Text is literal. If Key is string, Text is ignored/looked up.
+        btns_data = [
+            (None, "◀", self.show_prev_image),
+            (None, "▶", self.show_next_image),
+            (None, "+", self.zoom_in),
+            (None, "-", self.zoom_out),
+            (None, "↺", self.rotate_left),
+            (None, "↻", self.rotate_right),
+            (None, "⛶", self.toggle_fullscreen_mode),
+            (None, "☼", self.toggle_theme),
+            ("btn_file", "Plik", self.select_file),
+            ("btn_folder", "Folder", self.select_folder),
+            ("btn_save", "Zapisz", self.save_image_as),
+            ("btn_edit", "Edycja", self.open_edit_panel)
         ]
 
-        for text, func in btns:
-            btn = QPushButton(text)
+        self.buttons = []
+        for key, text, func in btns_data:
+            display_text = self.tr(key) if key else text
+            btn = QPushButton(display_text)
+            if key:
+                btn._tr_key = key
+
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedSize(60, 40) if len(text) < 3 else btn.setFixedSize(80, 40)
+            # Size logic: Icons small, Text bigger
+            is_icon = (key is None and len(text) < 3)
+            btn.setFixedSize(60, 40) if is_icon else btn.setFixedSize(80, 40)
+
             btn.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
             btn.clicked.connect(func)
             self.control_layout.addWidget(btn)
             self.buttons.append(btn)
+
+        # Initial turret text
+        self.viewer.set_turret_text(self.tr("turret_msg"))
 
     def _bind_shortcuts(self):
         # Define shortcuts
@@ -517,6 +604,7 @@ class TurretEyeApp(QMainWindow):
             ("Ctrl+3", lambda: self.apply_style("oil")),
             ("Ctrl+4", lambda: self.apply_style("contrast")),
             ("Ctrl+5", lambda: self.apply_style("bw")),
+            ("Alt+T", self.toggle_language),
             (Qt.Key.Key_Escape, self.exit_fullscreen_or_slideshow)
         ]
         for key, func in sc:
@@ -540,7 +628,7 @@ class TurretEyeApp(QMainWindow):
                 padding: 4px;
             }}
             QPushButton:hover {{ background-color: {t['hover_bg']}; }}
-            QPushButton:pressed {{ background-color: {t['accent']}; color: white; }}
+            QPushButton:pressed {{ background-color: #4a4a4a; color: {t['fg']}; }}
 
             QToolButton {{
                 background-color: {t['btn_bg']};
@@ -550,7 +638,7 @@ class TurretEyeApp(QMainWindow):
                 padding: 4px;
             }}
             QToolButton:hover {{ background-color: {t['hover_bg']}; }}
-            QToolButton:pressed {{ background-color: {t['accent']}; color: white; }}
+            QToolButton:pressed {{ background-color: #4a4a4a; color: {t['fg']}; }}
 
             QDialog {{ background-color: {t['bg']}; }}
 
@@ -622,18 +710,18 @@ class TurretEyeApp(QMainWindow):
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
-        menu.addAction("Obróć w lewo", self.rotate_left)
-        menu.addAction("Obróć w prawo", self.rotate_right)
+        menu.addAction(self.tr("ctx_rot_l"), self.rotate_left)
+        menu.addAction(self.tr("ctx_rot_r"), self.rotate_right)
         menu.addSeparator()
-        menu.addAction("Pełny ekran", self.toggle_fullscreen_mode)
-        menu.addAction("Cofnij", self.undo_edit)
+        menu.addAction(self.tr("ctx_full"), self.toggle_fullscreen_mode)
+        menu.addAction(self.tr("ctx_undo"), self.undo_edit)
 
-        style_menu = menu.addMenu("Stylizacja AI")
-        style_menu.addAction("Szkic", lambda: self.apply_style("sketch"))
-        style_menu.addAction("Obraz olejny", lambda: self.apply_style("oil"))
-        style_menu.addAction("Sepia", lambda: self.apply_style("sepia"))
-        style_menu.addAction("Kontrast", lambda: self.apply_style("contrast"))
-        style_menu.addAction("Czarno-biały", lambda: self.apply_style("bw"))
+        style_menu = menu.addMenu(self.tr("ctx_style"))
+        style_menu.addAction(self.tr("style_sketch"), lambda: self.apply_style("sketch"))
+        style_menu.addAction(self.tr("style_oil"), lambda: self.apply_style("oil"))
+        style_menu.addAction(self.tr("style_sepia"), lambda: self.apply_style("sepia"))
+        style_menu.addAction(self.tr("style_contrast"), lambda: self.apply_style("contrast"))
+        style_menu.addAction(self.tr("style_bw"), lambda: self.apply_style("bw"))
 
         menu.exec(self.viewer.mapToGlobal(pos))
 
@@ -785,13 +873,13 @@ class TurretEyeApp(QMainWindow):
             self.showFullScreen()
 
     def select_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Wybierz obraz", "",
+        path, _ = QFileDialog.getOpenFileName(self, self.tr("file_dialog_img"), "",
             "Images (*.png *.jpg *.jpeg *.bmp *.gif *.webp *.tif *.tiff *.jfif *.svg *.cr2 *.nef *.arw *.dng *.ico)")
         if path:
             self.load_image_path(path)
 
     def select_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Wybierz folder")
+        folder = QFileDialog.getExistingDirectory(self, self.tr("file_dialog_folder"))
         if folder:
             self.loaded_folder = folder
             exts = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".jfif", ".svg", ".cr2", ".nef", ".arw", ".dng", ".ico")
@@ -803,32 +891,72 @@ class TurretEyeApp(QMainWindow):
 
     def save_image_as(self):
         if not self.displayed_image: return
-        path, _ = QFileDialog.getSaveFileName(self, "Zapisz jako", "", "PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp)")
+        path, _ = QFileDialog.getSaveFileName(self, self.tr("save_title"), "", "PNG (*.png);;JPEG (*.jpg);;BMP (*.bmp)")
         if path:
             # We save the rotated version
             to_save = self.displayed_image
             if self.rotation:
                 to_save = to_save.rotate(self.rotation, expand=True)
             to_save.convert("RGB").save(path)
-            QMessageBox.information(self, "Zapisano", f"Zapisano do:\n{path}")
+            QMessageBox.information(self, self.tr("save_info"), self.tr("save_msg").format(path))
 
     def load_image_from_url(self):
         # Dialog
         d = QDialog(self)
-        d.setWindowTitle("Wklej URL obrazu")
+        d.setWindowTitle(self.tr("open_with_url"))
         d.resize(400, 150)
-        l = QVBoxLayout(d)
+        layout = QVBoxLayout(d)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Reverted to cleaner look, just centered as requested
+        lbl = QLabel(self.tr("url_lbl"))
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl)
+
         inp = QLineEdit()
         inp.setPlaceholderText("https://...")
-        btn = QPushButton("Załaduj")
-        l.addWidget(QLabel("URL:"))
-        l.addWidget(inp)
-        l.addWidget(btn)
+        # inp.setAlignment(Qt.AlignmentFlag.AlignCenter) # Removed center alignment
+        # Improved input styling
+        inp.setStyleSheet("""
+            QLineEdit {
+                border: 2px solid #3d3d3d;
+                border-radius: 8px;
+                padding: 6px 12px;
+                background-color: #2a2a2a;
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 2px solid #555555;
+                background-color: #333333;
+            }
+        """)
+        layout.addWidget(inp)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        btn_cancel = QPushButton(self.tr("url_cancel"))
+        btn_cancel.setFixedSize(100, 30)
+        btn_cancel.clicked.connect(d.reject)
+
+        btn_load = QPushButton(self.tr("url_load"))
+        btn_load.setFixedSize(100, 30)
+
+        btn_layout.addWidget(btn_cancel)
+        btn_layout.addWidget(btn_load)
+        layout.addLayout(btn_layout)
 
         def do_load():
-            url = inp.text()
+            url = inp.text().strip()
+            if not url: return
             try:
-                r = requests.get(url)
+                btn_load.setText(self.tr("url_downloading"))
+                btn_load.setEnabled(False)
+                QApplication.processEvents()
+
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                r = requests.get(url, headers=headers, timeout=10)
                 r.raise_for_status()
                 img = Image.open(io.BytesIO(r.content)).convert("RGBA")
                 self.loaded_folder = None
@@ -840,12 +968,14 @@ class TurretEyeApp(QMainWindow):
                 self.history.clear()
                 self.push_history(img)
                 self._update_display()
-                self.status_bar.setText(f"URL: {url}")
+                self.status_bar.setText(self.tr("status_url").format(url))
                 d.accept()
             except Exception as e:
-                QMessageBox.critical(d, "Błąd", str(e))
+                btn_load.setText(self.tr("url_load"))
+                btn_load.setEnabled(True)
+                QMessageBox.critical(d, self.tr("url_err_title"), self.tr("url_err_msg").format(str(e)))
 
-        btn.clicked.connect(do_load)
+        btn_load.clicked.connect(do_load)
         d.exec()
 
     # --- Editing ---
@@ -907,7 +1037,7 @@ class TurretEyeApp(QMainWindow):
 
     def open_edit_panel(self):
         d = QDialog(self)
-        d.setWindowTitle("Edycja")
+        d.setWindowTitle(self.tr("edit_title"))
         layout = QVBoxLayout(d)
 
         def create_slider(name, initial, cb):
@@ -918,9 +1048,9 @@ class TurretEyeApp(QMainWindow):
             s.valueChanged.connect(lambda v: cb(v/100.0))
             layout.addWidget(s)
 
-        create_slider("Jasność", self.brightness, lambda v: self._queue_adjustment("b", v))
-        create_slider("Nasycenie", self.saturation, lambda v: self._queue_adjustment("s", v))
-        create_slider("Ostrość", self.sharpness, lambda v: self._queue_adjustment("sh", v))
+        create_slider(self.tr("edit_bright"), self.brightness, lambda v: self._queue_adjustment("b", v))
+        create_slider(self.tr("edit_sat"), self.saturation, lambda v: self._queue_adjustment("s", v))
+        create_slider(self.tr("edit_sharp"), self.sharpness, lambda v: self._queue_adjustment("sh", v))
         d.show() # Non-modal
 
     def _queue_adjustment(self, type_, val):
@@ -949,26 +1079,63 @@ class TurretEyeApp(QMainWindow):
 
     def open_help_panel(self):
         d = QDialog(self)
-        d.setWindowTitle("Skróty klawiszowe")
-        d.resize(600, 500)
+        d.setWindowTitle(self.tr("help_title"))
+        d.resize(500, 600)
+
+        # Apply style for better look
+        d.setStyleSheet("""
+            QDialog { background-color: #2b2b2b; }
+            QLabel { font-family: 'Segoe UI'; font-size: 14px; color: #e0e0e0; padding: 5px; }
+            QLabel#Key { font-weight: bold; color: #ffffff; background-color: #3a3a3a; border-radius: 4px; padding: 4px 8px; }
+            QLabel#Desc { color: #cccccc; }
+            QScrollArea { border: none; background-color: transparent; }
+            QWidget#Content { background-color: transparent; }
+        """)
+
         l = QVBoxLayout(d)
+        l.setContentsMargins(10, 10, 10, 10)
+
         sa = QScrollArea()
+        sa.setWidgetResizable(True) # Fix resizing/gaps
+        sa.setFrameShape(QFrame.Shape.NoFrame)
+
         w = QWidget()
+        w.setObjectName("Content")
         gl = QGridLayout(w)
+        gl.setSpacing(10)
+        gl.setColumnStretch(1, 1)
 
         shortcuts = [
-            ("← / →", "Poprzedni / następny"), ("+ / -", "Zoom"), ("F", "Pełny ekran"),
-            ("R / L", "Obrót"), ("Ctrl+U", "URL"), ("Ctrl+B", "Paleta"), ("Ctrl+L", "Lustro"),
-            ("Alt+P/I", "PDF"), ("F10", "Pokaz slajdów"), ("Ctrl+Z/Y", "Cofnij/Ponów"),
-            ("Ctrl+P", "Turret Mode"), ("Kółko", "Zoom"), ("LPM+Drag", "Pan")
+            ("← / →", self.tr("h_prev")), ("+ / -", self.tr("h_zoom")), ("F", self.tr("h_full")),
+            ("R / L", self.tr("h_rot")), ("Ctrl+U", self.tr("h_url")), ("Ctrl+B", self.tr("h_pal")), ("Ctrl+L", self.tr("h_mir")),
+            ("Alt+T", self.tr("h_lang")), # Added Language shortcut
+            ("Alt+P/I", self.tr("h_pdf")), ("F10", self.tr("h_slide")), ("Ctrl+Z/Y", self.tr("h_undo")),
+            ("Ctrl+P", self.tr("h_turret")), (self.tr("h_scroll"), self.tr("h_zoom")), ("LPM+Drag", self.tr("h_pan"))
         ]
 
         for i, (k, desc) in enumerate(shortcuts):
-            gl.addWidget(QLabel(k), i, 0)
-            gl.addWidget(QLabel(desc), i, 1)
+            lbl_k = QLabel(k)
+            lbl_k.setObjectName("Key")
+            lbl_k.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl_k.setFixedWidth(120) # Fixed width for alignment
+
+            lbl_d = QLabel(desc)
+            lbl_d.setObjectName("Desc")
+
+            gl.addWidget(lbl_k, i, 0)
+            gl.addWidget(lbl_d, i, 1)
+
+        # Push to top
+        gl.setRowStretch(len(shortcuts), 1)
 
         sa.setWidget(w)
         l.addWidget(sa)
+
+        btn_ok = QPushButton("OK")
+        btn_ok.setFixedSize(100, 35)
+        btn_ok.clicked.connect(d.accept)
+        l.addWidget(btn_ok, 0, Qt.AlignmentFlag.AlignCenter)
+
         d.exec()
 
     def open_palette_window(self):
@@ -980,7 +1147,7 @@ class TurretEyeApp(QMainWindow):
         palette = q.getpalette()[:15] # 5 colors * 3 channels
 
         d = QDialog(self)
-        d.setWindowTitle("Paleta kolorów")
+        d.setWindowTitle(self.tr("pal_title"))
         l = QVBoxLayout(d)
 
         for i in range(0, len(palette), 3):
@@ -994,7 +1161,7 @@ class TurretEyeApp(QMainWindow):
             row.addWidget(QLabel(hex_c.upper()))
             l.addLayout(row)
 
-        btn_save = QPushButton("Zapisz jako PNG")
+        btn_save = QPushButton(self.tr("pal_save"))
         def save_pal():
             # Create palette image
             im_pal = Image.new("RGB", (500, 100), "#1c1c1c")
@@ -1003,7 +1170,7 @@ class TurretEyeApp(QMainWindow):
                 r,g,b = palette[j*3:j*3+3]
                 draw.rectangle([j*100, 0, (j+1)*100, 80], fill=(r,g,b))
                 # Text drawing omitted for brevity, logic remains similar
-            path, _ = QFileDialog.getSaveFileName(d, "Zapisz", "palette.png")
+            path, _ = QFileDialog.getSaveFileName(d, self.tr("pal_dlg_save"), "palette.png")
             if path: im_pal.save(path)
 
         btn_save.clicked.connect(save_pal)
@@ -1013,13 +1180,19 @@ class TurretEyeApp(QMainWindow):
     def open_nav_window(self):
         if not self.image_list: return
         d = QDialog(self)
-        d.setWindowTitle("Nawigacja")
+        d.setWindowTitle(self.tr("nav_title"))
         d.resize(800, 300)
 
         layout = QVBoxLayout(d)
+        layout.setContentsMargins(0,0,0,0)
         sa = QScrollArea()
+        sa.setWidgetResizable(True) # Fixes gaps (the "two bars" issue)
+        sa.setFrameShape(QFrame.Shape.NoFrame) # Removes border "bar"
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff) # Removes horizontal bar if any
+
         content = QWidget()
         grid = QGridLayout(content)
+        grid.setContentsMargins(10, 10, 10, 10)
 
         # Use QToolButton for cleaner layout (icon top, text bottom)
         col = 0
@@ -1092,7 +1265,7 @@ class TurretEyeApp(QMainWindow):
     
     def export_to_pdf(self):
         if not self.displayed_image: return
-        path, _ = QFileDialog.getSaveFileName(self, "Eksport PDF", "", "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self, self.tr("pdf_title"), "", "PDF (*.pdf)")
         if path:
             try:
                 c = pdfcanvas.Canvas(path, pagesize=A4)
@@ -1108,13 +1281,13 @@ class TurretEyeApp(QMainWindow):
                     c.drawImage(ImageReader(bio), (pw-nw)/2, (ph-nh)/2, nw, nh)
                     c.showPage()
                     c.save()
-                QMessageBox.information(self, "Sukces", "PDF zapisany.")
+                QMessageBox.information(self, self.tr("pdf_success"), self.tr("pdf_success"))
             except Exception as e:
-                QMessageBox.critical(self, "Błąd", str(e))
+                QMessageBox.critical(self, self.tr("pdf_err_title"), str(e))
 
     def export_folder_to_pdf(self):
         if not self.image_list: return
-        path, _ = QFileDialog.getSaveFileName(self, "Folder do PDF", "", "PDF (*.pdf)")
+        path, _ = QFileDialog.getSaveFileName(self, self.tr("pdf_folder_title"), "", "PDF (*.pdf)")
         if not path: return
 
         # Use QThread Worker to keep UI responsive AND give feedback
@@ -1122,10 +1295,16 @@ class TurretEyeApp(QMainWindow):
         self.worker.finished.connect(self._on_pdf_finished)
         self.worker.start()
 
-        QMessageBox.information(self, "Info", "Eksport rozpoczęty w tle...")
+        QMessageBox.information(self, self.tr("pdf_bg_title"), self.tr("pdf_bg_info"))
 
     def _on_pdf_finished(self, msg):
-        QMessageBox.information(self, "PDF Eksport", msg)
+        if msg == "SUCCESS":
+            text = self.tr("pdf_worker_success")
+        elif msg.startswith("ERROR||"):
+            text = self.tr("pdf_worker_err").format(msg.split("||", 1)[1])
+        else:
+            text = msg
+        QMessageBox.information(self, self.tr("pdf_box_title"), text)
 
     def toggle_slideshow(self):
         self.slideshow_active = not self.slideshow_active
