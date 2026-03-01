@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, ImageQt
 from PyQt6.QtCore import QSize, Qt, QTimer
 from PyQt6.QtGui import (QBrush, QColor, QFont, QIcon, QImage, QKeySequence,
                          QPainter, QPixmap, QShortcut)
-from PyQt6.QtWidgets import (QApplication, QDialog, QFileDialog, QFrame,
+from PyQt6.QtWidgets import (QApplication, QColorDialog, QDialog, QFileDialog, QFrame,
                              QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                              QMainWindow, QMenu, QMessageBox, QPushButton,
                              QScrollArea, QSlider, QStyle, QToolButton,
@@ -62,11 +62,14 @@ class TurretEyeApp(QMainWindow):
         self.is_dark_theme = True
         self.language = "pl"
         self.turret_active = False
+        self.hover_outline_color = None
 
         self.slideshow_active = False
         self.slideshow_timer = QTimer()
         self.slideshow_timer.timeout.connect(self.slideshow_next)
         self.slideshow_timer.setInterval(5000)
+        self._window_geometry_before_fullscreen = None
+        self._window_was_maximized_before_fullscreen = False
 
         # Thumb Cache (Stores (pixmap, info_text))
         self.thumb_cache = {}
@@ -191,6 +194,32 @@ class TurretEyeApp(QMainWindow):
     def _current_theme(self):
         return THEME_DARK if self.is_dark_theme else THEME_LIGHT
 
+    def _hover_outline_default(self):
+        return self._current_theme()["accent"]
+
+    def _hover_outline_css(self):
+        return self.hover_outline_color or self._hover_outline_default()
+
+    def _normalize_hover_outline_color(self, raw_color):
+        text = (raw_color or "").strip()
+        if not text:
+            return None
+        color = QColor(text)
+        if not color.isValid():
+            return None
+        if color.alpha() == 255:
+            return color.name(QColor.NameFormat.HexRgb).upper()
+        return f"rgba({color.red()}, {color.green()}, {color.blue()}, {color.alpha()})"
+
+    def _set_hover_outline_color(self, raw_color):
+        normalized = self._normalize_hover_outline_color(raw_color)
+        if normalized is None:
+            return False
+        self.hover_outline_color = normalized
+        self.apply_theme()
+        self.save_last_session()
+        return True
+
     def _resolve_svg_path(self, name):
         for root in self._icon_roots:
             path = os.path.join(root, f"{name}.svg")
@@ -217,7 +246,7 @@ class TurretEyeApp(QMainWindow):
 
     def _mono_icon(self, fallback, active=False, size=20):
         t = self._current_theme()
-        tint = t["accent"] if active else t["fg"]
+        tint = self._hover_outline_css() if active else t["fg"]
         cache_key = (str(fallback), tint, size)
         if cache_key in self._icon_cache:
             return self._icon_cache[cache_key]
@@ -257,6 +286,7 @@ class TurretEyeApp(QMainWindow):
 
     def _style_dialog(self, dialog):
         t = self._current_theme()
+        hover_outline = self._hover_outline_css()
         dialog.setWindowIcon(self.windowIcon())
         dialog.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         dialog.setStyleSheet(
@@ -292,10 +322,10 @@ class TurretEyeApp(QMainWindow):
                 padding: 7px 10px;
                 background-color: {t['card_bg']};
                 color: {t['fg']};
-                selection-background-color: {t['accent']};
+                selection-background-color: {hover_outline};
             }}
             QLineEdit:focus {{
-                border: 1px solid {t['accent']};
+                border: 1px solid {hover_outline};
                 background-color: {t['btn_bg']};
             }}
             QPushButton, QToolButton {{
@@ -319,7 +349,7 @@ class TurretEyeApp(QMainWindow):
                 text-align: center;
             }}
             QToolButton[thumbCard="true"]:hover {{
-                border: 1px solid {t['accent']};
+                border: 1px solid {hover_outline};
                 background-color: {t['hover_bg']};
             }}
             QScrollArea {{
@@ -334,7 +364,7 @@ class TurretEyeApp(QMainWindow):
             QSlider::handle:horizontal {{
                 width: 16px;
                 margin: -6px 0;
-                background: {t['accent']};
+                background: {hover_outline};
                 border-radius: 8px;
                 border: 1px solid {t['border']};
             }}
@@ -422,6 +452,7 @@ class TurretEyeApp(QMainWindow):
             (Qt.Key.Key_Plus, self.zoom_in),
             (Qt.Key.Key_Equal, self.zoom_in), # Often + is =
             (Qt.Key.Key_Minus, self.zoom_out),
+            (Qt.Key.Key_F11, self.toggle_fullscreen_mode),
             (Qt.Key.Key_F, self.toggle_fullscreen_mode),
             (Qt.Key.Key_R, self.rotate_right),
             (Qt.Key.Key_L, self.rotate_left),
@@ -452,6 +483,7 @@ class TurretEyeApp(QMainWindow):
 
     def apply_theme(self):
         t = self._current_theme()
+        hover_outline = self._hover_outline_css()
 
         # Stylesheet string
         qss = f"""
@@ -512,11 +544,11 @@ class TurretEyeApp(QMainWindow):
             }}
             QToolButton[controlAction="true"]:hover {{
                 background: {t['hover_bg']};
-                border: 1px solid {t['accent']};
+                border: 1px solid {hover_outline};
             }}
             QToolButton[controlAction="true"]:pressed {{
                 background: {t['btn_bg']};
-                border: 1px solid {t['accent']};
+                border: 1px solid {hover_outline};
             }}
 
             QDialog {{ background-color: {t['bg']}; }}
@@ -600,6 +632,11 @@ class TurretEyeApp(QMainWindow):
     def toggle_theme(self):
         self.is_dark_theme = not self.is_dark_theme
         self.apply_theme()
+        self.save_last_session()
+
+    def closeEvent(self, event):
+        self.save_last_session()
+        super().closeEvent(event)
 
     def toggle_turret_mode(self):
         self.turret_active = not self.turret_active
@@ -805,9 +842,31 @@ class TurretEyeApp(QMainWindow):
 
     def toggle_fullscreen_mode(self):
         if self.isFullScreen():
-            self.showNormal()
+            self._exit_fullscreen()
         else:
-            self.showFullScreen()
+            self._enter_fullscreen()
+
+    def _enter_fullscreen(self):
+        if self.isFullScreen():
+            return
+        self._window_was_maximized_before_fullscreen = self.isMaximized()
+        if self._window_was_maximized_before_fullscreen:
+            self._window_geometry_before_fullscreen = self.normalGeometry()
+        else:
+            self._window_geometry_before_fullscreen = self.geometry()
+        self.showFullScreen()
+
+    def _exit_fullscreen(self):
+        if not self.isFullScreen():
+            return
+        self.showNormal()
+        if self._window_was_maximized_before_fullscreen:
+            self.showMaximized()
+        elif (
+            self._window_geometry_before_fullscreen is not None
+            and self._window_geometry_before_fullscreen.isValid()
+        ):
+            self.setGeometry(self._window_geometry_before_fullscreen)
 
     def select_file(self):
         path, _ = QFileDialog.getOpenFileName(self, self.tr("file_dialog_img"), "",
@@ -965,7 +1024,7 @@ class TurretEyeApp(QMainWindow):
         d = QDialog(self)
         d.setWindowTitle(self.tr("edit_title"))
         d.setWindowIcon(self._mono_icon("sliders", True, 18))
-        d.resize(420, 240)
+        d.resize(560, 320)
         self._style_dialog(d)
         layout = QVBoxLayout(d)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -995,6 +1054,62 @@ class TurretEyeApp(QMainWindow):
         create_slider(self.tr("edit_bright"), self.brightness, lambda v: self._queue_adjustment("b", v))
         create_slider(self.tr("edit_sat"), self.saturation, lambda v: self._queue_adjustment("s", v))
         create_slider(self.tr("edit_sharp"), self.sharpness, lambda v: self._queue_adjustment("sh", v))
+
+        layout.addSpacing(8)
+        layout.addWidget(QLabel(self.tr("edit_hover_border")))
+
+        color_row = QHBoxLayout()
+        color_row.setSpacing(8)
+
+        color_input = QLineEdit(self._hover_outline_css())
+        color_input.setPlaceholderText(self.tr("edit_hover_border_placeholder"))
+        color_input.setMinimumWidth(220)
+        color_row.addWidget(color_input, 1)
+
+        preview = QLabel()
+        preview.setFixedSize(28, 28)
+        color_row.addWidget(preview)
+
+        def refresh_preview(color_css):
+            t = self._current_theme()
+            preview.setStyleSheet(
+                f"background-color: {color_css}; "
+                f"border: 1px solid {t['border']}; "
+                "border-radius: 6px;"
+            )
+
+        def apply_manual_color():
+            if not self._set_hover_outline_color(color_input.text()):
+                self._show_error(
+                    self.tr("edit_hover_border_invalid_title"),
+                    self.tr("edit_hover_border_invalid_msg"),
+                )
+                return
+            color_input.setText(self._hover_outline_css())
+            refresh_preview(self._hover_outline_css())
+
+        def pick_color():
+            picked = QColorDialog.getColor(
+                QColor(self._hover_outline_css()),
+                d,
+                self.tr("edit_pick_color"),
+                QColorDialog.ColorDialogOption.ShowAlphaChannel,
+            )
+            if not picked.isValid():
+                return
+            if self._set_hover_outline_color(picked.name(QColor.NameFormat.HexArgb)):
+                color_input.setText(self._hover_outline_css())
+                refresh_preview(self._hover_outline_css())
+
+        btn_pick = QPushButton(self.tr("edit_pick_color"))
+        btn_pick.setIcon(self._mono_icon("aperture", False, 16))
+        btn_pick.clicked.connect(pick_color)
+        color_row.addWidget(btn_pick)
+
+        color_input.returnPressed.connect(apply_manual_color)
+        refresh_preview(self._hover_outline_css())
+        layout.addLayout(color_row)
+
         d.show() # Non-modal
 
     def _queue_adjustment(self, type_, val):
@@ -1066,7 +1181,7 @@ class TurretEyeApp(QMainWindow):
         gl.setColumnStretch(1, 1)
 
         shortcuts = [
-            ("← / →", self.tr("h_prev")), ("+ / -", self.tr("h_zoom")), ("F", self.tr("h_full")),
+            ("← / →", self.tr("h_prev")), ("+ / -", self.tr("h_zoom")), ("F11", self.tr("h_full")),
             ("R / L", self.tr("h_rot")), ("Ctrl+U", self.tr("h_url")), ("Ctrl+B", self.tr("h_pal")), ("Ctrl+L", self.tr("h_mir")),
             ("Alt+T", self.tr("h_lang")), # Added Language shortcut
             ("Alt+P/I", self.tr("h_pdf")), ("F10", self.tr("h_slide")), ("Ctrl+Z/Y", self.tr("h_undo")),
@@ -1319,11 +1434,11 @@ class TurretEyeApp(QMainWindow):
     def toggle_slideshow(self):
         self.slideshow_active = not self.slideshow_active
         if self.slideshow_active:
-            self.showFullScreen()
+            self._enter_fullscreen()
             self.slideshow_timer.start()
         else:
             self.slideshow_timer.stop()
-            self.showNormal()
+            self._exit_fullscreen()
 
     def slideshow_next(self):
         self.show_next_image()
@@ -1332,13 +1447,26 @@ class TurretEyeApp(QMainWindow):
         if self.slideshow_active:
             self.toggle_slideshow()
         elif self.isFullScreen():
-            self.showNormal()
+            self._exit_fullscreen()
 
     def load_last_session(self):
         if os.path.exists(SESSION_FILE):
             try:
                 with open(SESSION_FILE, "rb") as f:
                     data = pickle.load(f)
+                    saved_hover_outline = data.get("hover_outline_color")
+                    if saved_hover_outline is None:
+                        self.hover_outline_color = None
+                    else:
+                        normalized_hover_outline = self._normalize_hover_outline_color(saved_hover_outline)
+                        if normalized_hover_outline is not None:
+                            self.hover_outline_color = normalized_hover_outline
+
+                    if isinstance(data.get("is_dark_theme"), bool):
+                        self.is_dark_theme = data["is_dark_theme"]
+
+                    self.apply_theme()
+
                     if data.get("folder") and os.path.isdir(data["folder"]):
                         self.loaded_folder = data["folder"]
                         # Re-scan
@@ -1357,7 +1485,9 @@ class TurretEyeApp(QMainWindow):
             # Zoom/rotation are typically transient in this viewer logic or reset on load,
             # but we save them if needed. For now, matching old behavior of saving basic state.
             "zoom": self.viewer.transform().m11(),
-            "rotation": self.rotation
+            "rotation": self.rotation,
+            "is_dark_theme": self.is_dark_theme,
+            "hover_outline_color": self.hover_outline_color,
         }
         try:
             with open(SESSION_FILE, "wb") as f:
